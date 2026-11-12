@@ -8,27 +8,34 @@ The old 2025.07 code remains untouched on the original `wma301` branch.
 
 ## Critical layout correction (2026-11-12)
 
-**Do not use the current temporary OpenWrt SSH shell to flash this package.**
-The existing Linux/community device tree and the 2026.10 experimental
-U-Boot DTS have a provisional `fip` partition at `0x200000..0x400000`.
-The original WMA301 V2 NAND contains the **actual OEM FIP at offset
-`0x20000`** inside the stock `factory_boot` area
-(`0x0..0x3c0000`). These are different physical regions.
+The running ImmortalWrt initramfs has now **reported an OEM-correct**
+read-only flash map:
 
-The first port of `wma301_oem_bl33.c` incorrectly required the provisional
-`0x200000` address. **This check has been corrected**: the C writer now
-requires `fip` at `0x20000`, length `0x3a0000`, 128 KiB erase blocks,
-and a 128 MiB parent NAND. With the current provisional device tree this
-**must fail closed** rather than write the wrong data. Passing the package
-validator does not authorize a raw `mtd write` to `/dev/mtd2`.
+- `bl2`: offset `0x00000`, size `0x20000`
+- `fip`: offset `0x20000`, size `0x3a0000`
+- `reserved`: offset `0x3c0000`, size `0x40000`
+- `factory_info`, `art`, `config`: preserve OEM data
+- `ubi`: offset `0x700000`, remainder of 128 MiB NAND
 
-To enable a real OEM-only BL33 update, first create and test an OEM-accurate
-U-Boot/Linux flash partition map, inspect the physical FIP TOC and backup
-its three erase blocks, then test recovery and the dedicated writer.
-The stock-toolbox path for an intact OEM firmware uses a different target:
-`/dev/mtd0 factory_boot`, size `0x3c0000`, with FIP eraseblocks at
-`0x20000`, `0x40000`, `0x60000`. It cannot be used unchanged with the
-read-only temporary Linux layout, whose `mtd0` is a 1 MiB `bl2` alias.
+The original experimental U-Boot DTS incorrectly placed its FIP at
+`0x200000`; this has been fixed in the **2026.10 port DTS**, and CI
+now checks the correct partition geometry. Its WMABL33 writer checks
+for exactly `fip` at `0x20000`, `0x3a0000` length, a 128 MiB
+parent, 128 KiB PEBs, and a strict maximum of 3 physical FIP eraseblocks
+(`0x20000..0x80000`).
+
+**The bootloader presently running on the board still has its OWN DTS.**
+The Linux `/proc/mtd` output cannot establish U-Boot's `mtd list`;
+check that independently in TTL before any change.
+
+The running Linux makes `fip` read-only. A `WMABL33` update package
+is **not** a complete FIP, so raw `mtd write` / `nand write` of the
+package is always wrong. To update using TTL, take a per-device backup,
+verify the old OEM FIP TOC and its BL31, construct the full replacement
+FIP using the signed-off source with a byte-for-byte unchanged BL31,
+check physical offsets and bad blocks, and test RAM-load before any
+low-level flash operation. TTL access does not guarantee recovery after
+an interrupted or corrupted BL2/FIP write.
 
 ## What was ported
 
