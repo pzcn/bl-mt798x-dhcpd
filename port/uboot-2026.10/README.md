@@ -13,9 +13,9 @@ The old 2025.07 code remains untouched on the original `wma301` branch.
 - A 2026.10 Kconfig based on the upstream MT7981 360T7 configuration.
 - Boot environment: check buttons, load FIT from UBI, fallback to
   recovery FIT, TFTP RAM boot and HTTP failsafe.
-- Web recovery is **RAM-only**. All non-initramfs Web uploads are rejected
-  during validation, and all persistent Web writes are rejected at the
-  actual `failsafe_write_image()` hook. Flash management, UBI management,
+- Web recovery supports RAM-boot initramfs, plus **WMABL33 v1 OEM-only BL33
+  update** behind a TTL one-shot authorization. The upstream generic FIP,
+  BL2, firmware, flash and UBI writers remain inaccessible to Web uploads.
   Telnet, environment editor and Web console are disabled.
 - Independent GitHub Actions compilation, WMABL33 v1 package encoding,
   strict decode/round-trip validation, size/link-address checks, ELF header
@@ -50,25 +50,54 @@ page routing and favicon handler have been adapted to this separate style.
   is enabled, while Web console, environment editor and UBI management
   remain disabled.
 - **Initramfs** RAM boot remains usable through `/upload`.
-- Firmware and BL33 update cards explicitly say **not available** in this
-  preview. The board's `failsafe_validate_image()` and
-  `failsafe_write_image()` continue to reject persistent uploads.
+- Firmware flash remains blocked. The **U-Boot 更新** card accepts
+  `WMA301_BL33_UPDATE.bin`; the board validation hook checks the package
+  and OEM FIP, and the writer is **locked by default** until TTL arms it.
 - `/reboot-failsafe` is **blocked on the backend** because the new
   upstream endpoint would call `env_save()`. Normal reboot remains.
 - CI checks JavaScript syntax and the gzip-embedded HTML, CSS, JS and
   original SVG after compiling U-Boot.
 
-**Scope:** This is a visual and read-only/RAM recovery port, not a full
-port of the V4 firmware-update and FIP BL33 writer. The latter cannot
-be enabled until OEM layout and hardware recovery are verified.
+**Scope:** The V4-specific BL33 writer has now been migrated and builds on
+2026.10; the separate generic firmware writer remains disabled. CI does
+not confirm that the physical flash can be updated and recovered safely.
+
+### OEM BL33 Web-update interlock
+
+The `fip` HTTP upload field routes to the dedicated
+`wma301_oem_bl33_validate()` / `wma301_oem_bl33_write()` implementation,
+**not** the upstream full-FIP writer. It only accepts the WMABL33 v1 format,
+checks the existing BL31+BL33 FIP TOC, preserves BL31 bytes, verifies the
+write by reading back, and attempts restoring the original FIP on failure.
+
+It additionally requires exactly these observed physical conditions:
+128 MiB parent MTD, 128 KiB erase blocks, the raw `fip` partition at
+0x200000 with 2 MiB size, and the expected BL31/BL33 FIP TOC structure.
+Mismatch means **refuse to write**; do not bypass the checks.
+
+For **explicit hardware testing only**, with a verified external backup,
+known-good recovery procedure and stable power, a console operator may
+temporarily arm one attempt:
+
+```text
+MT7981> setenv wma301_bl33_update_enable 1
+MT7981> httpd
+```
+
+Do **not** run `saveenv`. The variable is in RAM and is cleared before
+the actual write. When absent, /upload may validate a package but /result
+cannot perform a persistent write. The Web UI displays the same warning.
+This is not proof against an interrupted FIP erase or an unbootable new
+BL33; restoring the old image after power loss is not guaranteed.
 
 ## Important caveats
 
 The observed OEM partition map is BL2 1 MiB, u-boot-env 1 MiB,
 FIP 2 MiB, factory 512 KiB, eeprom 512 KiB, stock-config 2 MiB and
 remaining UBI. **The new upstream normally expects OpenWrt UBI FIP
-layouts.** It cannot safely replace the OEM FIP without additional
-integration. OEM BL2 and BL31 are not built or changed here.
+layouts.** The WMA301-specific writer bypasses that path and rebuilds
+the BL31+BL33 FIP only within the exact OEM `fip` partition. OEM BL2 and
+BL31 are not rebuilt or intentionally modified.
 
 `read-only` DTS properties and Web write guards do not prevent writes
 from a UART command line or external flashing utilities.
@@ -94,6 +123,7 @@ python3 wma301/port/uboot-2026.10/apply.py upstream --verify
 make -C upstream -j"$(nproc)" CROSS_COMPILE=aarch64-linux-gnu- all
 ```
 
-The upstream revision is deliberately pinned until the first successful
-CI build and a safe RAM-only board bring-up. Later updates can be tested
-independently before changing the pinned revision.
+The upstream revision remains pinned to reproduce the passing CI build.
+WMABL33 format, C writer compilation and embedded V4 UI have passed CI;
+**the OEM FIP Web writing path has not yet been proven on real hardware**.
+Future source updates should stay behind this same verification pipeline.
