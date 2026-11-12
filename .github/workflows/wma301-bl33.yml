@@ -50,6 +50,11 @@ jobs:
           logo = Path("uboot-mtk-20250711/failsafe/embedded/fsdata-wma301/favicon.svg").read_text()
           page = Path("uboot-mtk-20250711/failsafe/embedded/fsdata-wma301/index.html").read_text()
           assert '<svg xmlns="http://www.w3.org/2000/svg"' in logo
+          # Historical Toolbox icon: dark router body, teal Wi-Fi, twin LEDs and ports.
+          assert 'rx="16" fill="#102536"' in logo
+          assert 'M15 24 Q32 7 49 24 M22 29 Q32 19 42 29' in logo
+          assert 'stroke="#42D6C5"' in logo
+          assert 'M37 41v6m8-6v6' in logo
           assert '<img src="/favicon.svg"' in page
           assert 'href="/favicon.svg"' in page
           print("WMA301 Web routes, favicon MIME and embedded SVG logo OK")
