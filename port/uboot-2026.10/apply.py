@@ -78,6 +78,8 @@ def install(tree):
     board_anchor = "\tenv_relocate();\n\treturn 0;\n"
     repair = (
         "\tenv_relocate();\n"
+        "\t/* Always discard any persistent OEM-BL33 write authorization. */\n"
+        "\tenv_set(\"wma301_bl33_update_enable\", NULL);\n"
         "\t/* WMA301_SAFE_BOOTCMD_FALLBACK: in-memory recovery for old UBI env. */\n"
         "\tif (!env_get(\"bootcmd\") || !*env_get(\"bootcmd\")) {\n"
         "\t\tputs(\"WMA301: no bootcmd in UBI env; enabling RAM-only boot fallback\\n\");\n"
@@ -263,6 +265,8 @@ def verify(tree):
     board = (tree / "board/mediatek/mt7981/mt7981_rfb.c").read_text()
     if board.count("WMA301_SAFE_BOOTCMD_FALLBACK") != 1:
         raise RuntimeError("Missing RAM-only missing-bootcmd migration")
+    if "env_set(\"wma301_bl33_update_enable\", NULL)" not in board:
+        raise RuntimeError("Write authorization not cleared on boot")
     if "env_save()" in board or "saveenv" in board:
         raise RuntimeError("Board boot migration must never save environment")
     env = (tree / "defenvs" / (NAME + "_env")).read_text()
