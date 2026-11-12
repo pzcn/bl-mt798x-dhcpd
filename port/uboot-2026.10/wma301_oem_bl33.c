@@ -15,8 +15,10 @@
  *   0x7c  u32   reserved      0
  *   0x80  xz stream (CRC32 check) of the raw u-boot.bin
  *
- * The FIP on flash must contain exactly two entries (BL31, BL33). The new
- * FIP is: original TOC header, BL31 (unchanged bytes), new BL33 xz.
+ * The FIP on flash must contain exactly two entries (BL31, BL33) and fit
+ * within the three 128-KiB blocks used by the 2025 customized bootloader.
+ * A full stock OEM FIP is too large and is deliberately refused. The new
+ * FIP keeps the original TOC header and BL31 and replaces BL33 xz only.
  * The "fip" partition is normally read-only; it is written through its
  * parent (master) MTD device. Every written byte is read back and compared;
  * on failure the original FIP is written back and verified.
@@ -156,15 +158,13 @@ static int read_old_fip(struct mtd_info **retmtd, u8 *buf, u64 *bl31_off,
 		return -ENODEV;
 	}
 	/*
-	 * The OEM WMA301 FIP starts at physical 0x20000. The temporary
-	 * OpenWrt/older experimental U-Boot partition map exposes a fake
-	 * "fip" at 0x200000; that region is NOT the factory FIP.
-	 * Fail closed rather than erasing the wrong part of the NAND.
+	 * OEM WMA301 FIP begins at physical 0x20000 and has size 0x3a0000.
+	 * Refuse any unexpected MTD geometry without erasing anything.
 	 */
 	if (!mtd->parent || mtd->size != 0x3a0000 ||
 	    mtd->offset != 0x20000 || mtd->erasesize != SZ_128K ||
 	    mtd->parent->size != SZ_128M) {
-		printf("BL33 update: unsafe MTD map, factory FIP must begin at 0x20000 (not 0x200000)\n");
+		printf("BL33 update: MTD map mismatch, expected fip 0x20000 + 0x3a0000\n");
 		put_mtd_device(mtd);
 		return -EINVAL;
 	}
@@ -274,6 +274,8 @@ int wma301_oem_bl33_validate(const void *data, size_t size)
 	ret = read_old_fip(&mtd, work_buf(BUF_OLD_OFF), &bl31_off, &bl31_size, &used);
 	if (ret)
 		return ret;
+	if (used > MAX_OEM_FIP_WRITABLE)
+		printf("BL33 update: stock-size FIP exceeds three blocks; use Toolbox/TTL for first installation\n");
 	if (FIP_TOC_START + bl31_size + h->xz_size > MAX_OEM_FIP_WRITABLE ||
 	    used > MAX_OEM_FIP_WRITABLE) {
 		printf("BL33 update: new FIP does not fit the '%s' partition\n", FIP_PART_NAME);
@@ -302,6 +304,8 @@ int wma301_oem_bl33_write(const void *data, size_t size)
 	master = mtd->parent;
 	base = mtd->offset;
 
+	if (used > MAX_OEM_FIP_WRITABLE)
+		printf("BL33 update: stock-size FIP exceeds three blocks; use Toolbox/TTL for first installation\n");
 	if (FIP_TOC_START + bl31_size + h->xz_size > MAX_OEM_FIP_WRITABLE ||
 	    used > MAX_OEM_FIP_WRITABLE) {
 		ret = -E2BIG;
