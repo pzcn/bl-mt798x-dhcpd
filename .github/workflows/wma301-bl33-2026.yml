@@ -66,7 +66,7 @@ jobs:
           base = Path("upstream/failsafe/embedded/fsdata-wma301/.min")
           required = {
               "index.html.gz": "WMA301 恢复模式",
-              "main.js.gz": "实验版禁止写入 Flash",
+              "main.js.gz": "wma301_bl33_update_enable",
               "style.css.gz": "--bg:",
               "favicon.svg.gz": "#102536",
               "initramfs.html.gz": "initramfs",
@@ -95,6 +95,7 @@ jobs:
           python3 port/uboot-2026.10/package_bl33.py \
             --verify output/WMA301_BL33_UPDATE.bin \
             --audit output/verify-audit.json
+          aarch64-linux-gnu-nm upstream/u-boot | grep -E "wma301_oem_bl33_(validate|write)"
           cp upstream/.config output/u-boot.config
           aarch64-linux-gnu-readelf -h upstream/u-boot > output/elf-header.txt
           printf '%s\\n' \
