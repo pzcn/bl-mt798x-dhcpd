@@ -1006,6 +1006,18 @@ function appInit(pageName) {
  *       "condition" - evaluate a condition function
  */
 const NAV_VISIBILITY_DEFS = {
+    // Hide upload-only bootloader pages if their HTTP handlers were excluded.
+    // Other boards retain the pages and show the corresponding navigation items.
+    uboot: {
+        url: "/uboot.html",
+        logPrefix: "U-Boot upgrade",
+        hiddenReason: "disabled for firmware-only upgrades",
+    },
+    bl2: {
+        url: "/bl2.html",
+        logPrefix: "BL2 upgrade",
+        hiddenReason: "disabled for firmware-only upgrades",
+    },
     // Advanced features (depends on WEBUI_FAILSAFE_ADVANCED)
     backup: {
         url: "/backup.html",
