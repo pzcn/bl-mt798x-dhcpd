@@ -38,7 +38,7 @@ jobs:
             python3 python3-pyelftools python3-setuptools \
             bc swig file nodejs npm xz-utils
       - name: Test WMABL33 v1 package format offline
-        run: python3 -m unittest -v port/uboot-2026.10/test_package_bl33.py
+        run: python3 -m unittest discover -v -s port/uboot-2026.10 -p 'test_*.py'
       - name: Apply board port and deny all Web flash uploads
         run: |
           python3 port/uboot-2026.10/apply.py upstream
