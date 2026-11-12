@@ -343,7 +343,7 @@ def verify(tree):
                    'env_set("wma301_bl33_update_enable", NULL)',
                    'get_mtd_device_nm("factory_info")',
                    'mtd_read(mtd, 0x1c, sizeof(mac)',
-                   'eth_env_set_enetaddr("ethaddr", mac)',
+                   'env_set("ethaddr", str)',
                    'env_set("btnchk_key", "reset,mesh")',
                    'env_set("bootmenu_3", "Start Web failsafe=httpd")'):
         if marker not in compat:

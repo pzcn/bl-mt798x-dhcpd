@@ -35,7 +35,9 @@ class LegacyBootTests(unittest.TestCase):
         self.assertIn('get_mtd_device_nm("factory_info")', BOARD)
         self.assertIn('mtd_read(mtd, 0x1c, sizeof(mac)', BOARD)
         self.assertIn('is_valid_ethaddr(mac)', BOARD)
-        self.assertIn('eth_env_set_enetaddr("ethaddr", mac)', BOARD)
+        # eth_env_set_enetaddr() returns -EEXIST when ethaddr already exists
+        self.assertNotIn('eth_env_set_enetaddr("ethaddr", mac)', BOARD)
+        self.assertIn('env_set("ethaddr", str)', BOARD)
         self.assertIn('# CONFIG_NET_RANDOM_ETHADDR is not set', CONFIG)
 
     def test_reset_and_mesh_boot_web_without_serial(self):
@@ -72,6 +74,14 @@ class LegacyBootTests(unittest.TestCase):
             self.assertIn(f'gpios = <&pio {gpio} GPIO_ACTIVE_HIGH>;', DTS)
         for gpio in (0, 1):
             self.assertIn(f'gpios = <&pio {gpio} GPIO_ACTIVE_LOW>;', DTS)
+
+    def test_spi_nand_clock_26mhz(self):
+        self.assertIn('spi-max-frequency = <26000000>;', DTS)
+        self.assertNotIn('spi-max-frequency = <52000000>;', DTS)
+
+    def test_web_ui_entry_point_is_called(self):
+        # Without the final boot() call the SPA stays at "正在加载…".
+        self.assertTrue(WEB.rstrip().endswith("boot();"))
 
     def test_fip_layout_and_flash_window(self):
         self.assertIn('label = "fip"; reg = <0x20000 0x3a0000>;', DTS)

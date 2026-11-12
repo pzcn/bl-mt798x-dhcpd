@@ -146,7 +146,8 @@
 	spi_nand@0 {
 		compatible = "spi-nand";
 		reg = <0>;
-		spi-max-frequency = <52000000>;
+		/* 26 MHz: 52 MHz left ~1 page per 7000 with bad on-die ECC parity (ESMT) */
+		spi-max-frequency = <26000000>;
 
 		partitions {
 			compatible = "fixed-partitions";

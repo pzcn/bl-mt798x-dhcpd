@@ -80,6 +80,7 @@ static void wma301_mac_from_mtd(void)
 {
 	struct mtd_info *mtd;
 	u8 mac[6], current[6];
+	char str[ARP_HLEN_ASCII + 1];
 	size_t len = 0;
 	int ret;
 
@@ -107,8 +108,17 @@ static void wma301_mac_from_mtd(void)
 	if (eth_env_get_enetaddr("ethaddr", current) &&
 	    !memcmp(current, mac, sizeof(mac)))
 		return;
-	eth_env_set_enetaddr("ethaddr", mac);
-	printf("WMA301: MAC %pM from factory_info+0x1c (RAM only)\n", mac);
+	/*
+	 * eth_env_set_enetaddr() refuses to replace an existing ethaddr
+	 * (-EEXIST), e.g. the random MAC saved by the 2025 build. Use
+	 * env_set() directly; ethaddr access is "any" (ENV_OVERWRITE).
+	 */
+	snprintf(str, sizeof(str), "%pM", mac);
+	ret = env_set("ethaddr", str);
+	if (ret)
+		printf("WMA301: failed to set factory MAC %s (%d)\n", str, ret);
+	else
+		printf("WMA301: MAC %s from factory_info+0x1c (RAM only)\n", str);
 }
 
 void wma301_board_runtime_init(void)

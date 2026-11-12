@@ -479,3 +479,5 @@ VIEWS.system = () => {
 	$("b_boot").onclick = async () => { if (await confirmBox("尝试启动系统", "仅当 UBI 内已有可启动的 FIT 时才会成功。", "启动")) doBoot("boot"); };
 	$("b_reboot").onclick = async () => { if (await confirmBox("重启", "设备将重新启动，不会自动保存环境。", "重启")) doBoot("reboot"); };
 };
+
+boot();
