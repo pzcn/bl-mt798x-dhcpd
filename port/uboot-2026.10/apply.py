@@ -31,16 +31,28 @@ def install(tree):
     s = path.read_text()
     if MARKER in s:
         raise RuntimeError("Already patched")
+    s = patch_once(s, '#include "failsafe_validate.h"\n',
+        '#include "wma301_oem_bl33.h"\n')
     v = "int failsafe_validate_image(const void *data, size_t size, failsafe_fw_t fw)\n{\n"
     s = patch_once(s, v, (
-        "\t/* " + MARKER + ": RAM boot only. */\n"
+        "\t/* " + MARKER + ": RAM boot or authenticated WMABL33 v1 only. */\n"
+        "\tif (fw == FW_TYPE_FIP)\n"
+        "\t\treturn wma301_oem_bl33_validate(data, size);\n"
         "\tif (fw != FW_TYPE_INITRD)\n"
-        "\t\treturn failsafe_error(-EPERM, \"WMA301 preview: flash uploads disabled\");\n"
+        "\t\treturn failsafe_error(-EPERM, \"WMA301: generic flashing disabled\");\n"
     ))
     w = "int failsafe_write_image(const void *data, size_t size, failsafe_fw_t fw)\n{\n"
     s = patch_once(s, w, (
-        "\t/* " + MARKER + ": refuse all persistent Web writes. */\n"
-        "\treturn failsafe_error(-EPERM, \"WMA301 preview: flash writes disabled\");\n"
+        "\t/* " + MARKER + ": no generic FIP, BL2 or firmware writes. */\n"
+        "\tif (fw == FW_TYPE_FIP) {\n"
+        "\t\tif (env_get_yesno(\"wma301_bl33_update_enable\") != 1)\n"
+        "\t\t\treturn failsafe_error(-EPERM,\n"
+        "\t\t\t\t\"WMABL33 write locked: arm via TTL setenv (no saveenv)\");\n"
+        "\t\t/* Consume RAM-only authorization before touching NAND. */\n"
+        "\t\tenv_set(\"wma301_bl33_update_enable\", NULL);\n"
+        "\t\treturn wma301_oem_bl33_write(data, size);\n"
+        "\t}\n"
+        "\treturn failsafe_error(-EPERM, \"WMA301: generic flash writes disabled\");\n"
     ))
     path.write_text(s)
     assert s.count(MARKER) == 2
@@ -79,6 +91,18 @@ def install(tree):
     print("Installed WMA301 bootcmd fallback (RAM only, no flash writes)")
 
     # Reuse the existing V4 Web design with 2026.10 resource registration.
+    # The 2026.10 generic FIP writer cannot update OEM BL33. Install
+    # the legacy WMABL33-only repacker as a WMA301-specific module.
+    common = tree / "board/mediatek/common"
+    for name in ("wma301_oem_bl33.c", "wma301_oem_bl33.h"):
+        (common / name).write_bytes((HERE / name).read_bytes())
+    makefile = common / "Makefile"
+    mk = makefile.read_text()
+    mk = patch_once(mk,
+        "obj-$(CONFIG_MTK_WEB_FAILSAFE) += failsafe.o\n",
+        "obj-$(CONFIG_WEBUI_FAILSAFE_UI_WMA301) += wma301_oem_bl33.o\n")
+    makefile.write_text(mk)
+
     ui_src = HERE / "fsdata-wma301"
     ui_dst = tree / "failsafe/embedded/fsdata-wma301"
     required_ui = {"Makefile", "embed.S", "index.html", "main.js",
@@ -98,6 +122,8 @@ def install(tree):
         config_text, "config WEBUI_FAILSAFE_UI_BRUTALISM\n",
         'config WEBUI_FAILSAFE_UI_WMA301\n'
         '\tbool "WMA301 V4 light/dark recovery UI"\n'
+        '\tselect XZ\n'
+        '\tselect SHA256\n'
         '\thelp\n'
         '\t  WMA301 V2 single-page recovery UI, based on the Toolbox styling.\n'
         '\t  This experiment disables persistent flash writes.\n\n')
@@ -168,6 +194,8 @@ def verify(tree):
         'CONFIG_ENV_IS_IN_UBI=y',
         'CONFIG_ENV_REDUNDANT=y',
         'CONFIG_WEBUI_FAILSAFE_UI_WMA301=y',
+        'CONFIG_XZ=y',
+        'CONFIG_SHA256=y',
         'CONFIG_WEBUI_FAILSAFE_ADVANCED=y',
         'CONFIG_WEBUI_FAILSAFE_COMPRESS_GZIP=y',
         'CONFIG_ENV_SIZE=0x1f000',
@@ -203,6 +231,16 @@ def verify(tree):
     if (tree / "failsafe/modules/upgrade.c").read_text().count(
             "WMA301_PREVIEW_DISABLE_PERSISTENT_FAILSAFE_REBOOT") != 1:
         raise RuntimeError("Persistent reboot endpoint is not guarded")
+    writer = (tree / "board/mediatek/common/wma301_oem_bl33.c").read_text()
+    if ("mtd->offset != 0x200000" not in writer or
+            "wma301_oem_bl33_write" not in writer):
+        raise RuntimeError("OEM FIP writer missing or layout guard changed")
+    failsafe = (tree / "board/mediatek/common/failsafe.c").read_text()
+    if ("wma301_oem_bl33_validate" not in failsafe or
+            "wma301_bl33_update_enable" not in failsafe):
+        raise RuntimeError("WMABL33 upload gate/validator missing")
+    if "wma301_oem_bl33.o" not in (tree / "board/mediatek/common/Makefile").read_text():
+        raise RuntimeError("WMABL33 object missing from build")
     if "WEBUI_FAILSAFE_UI_WMA301" not in (tree / "failsafe/Kconfig").read_text():
         raise RuntimeError("WMA301 UI Kconfig choice is missing")
     if "fsdata-wma301/" not in (tree / "failsafe/embedded/Makefile").read_text():
