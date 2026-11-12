@@ -247,7 +247,7 @@ def verify(tree):
             "WMA301_PREVIEW_DISABLE_PERSISTENT_FAILSAFE_REBOOT") != 1:
         raise RuntimeError("Persistent reboot endpoint is not guarded")
     writer = (tree / "board/mediatek/common/wma301_oem_bl33.c").read_text()
-    if ("mtd->offset != 0x200000" not in writer or
+    if ("mtd->offset != 0x20000" not in writer or
             "wma301_oem_bl33_write" not in writer):
         raise RuntimeError("OEM FIP writer missing or layout guard changed")
     failsafe = (tree / "board/mediatek/common/failsafe.c").read_text()
