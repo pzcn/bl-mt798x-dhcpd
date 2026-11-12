@@ -18,8 +18,10 @@ VERSION = 1
 LINK_ADDRESS = 0x41E00000
 MAX_RAW = 0x200000
 MAX_XZ = MAX_RAW + 0x10000
+# WMA301 OEM FIP: 0x20000 start, only the 3 eraseblocks before 0x80000
+# are eligible for replacement. Keep the exact 2025/Toolbox window.
 FIP_XZ_START = 0x23848
-FIP_END = 0x3C0000
+FIP_END = 0x80000
 HEADER = struct.Struct("<8sII32sII32s32sII")
 assert HEADER.size == HEADER_SIZE
 
