@@ -30,6 +30,13 @@ config WEBUI_FAILSAFE_UI_MTK
 config WEBUI_FAILSAFE_UI_GL
 	bool "GL UI (fsdata_gl)"
 
+config WEBUI_FAILSAFE_UI_WMA301
+	bool "WMA301 recovery UI (fsdata-wma301, single page)"
+	help
+	  Simplified single-page recovery UI made for the TP-Link WMA301 V2.0
+	  port (vendor BL2/BL31 kept). Uses only the existing failsafe HTTP
+	  API; credits the upstream projects in its footer/about page.
+
 endchoice
 
 config WEBUI_FAILSAFE_BUILD_VARIANT
