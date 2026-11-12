@@ -43,6 +43,10 @@ jobs:
         run: |
           python3 port/uboot-2026.10/apply.py upstream
           git -C upstream diff --check
+      - name: Validate V4 UI JavaScript
+        run: |
+          node --check upstream/failsafe/embedded/fsdata-wma301/main.js
+          grep -q 'CONFIG_WEBUI_FAILSAFE_UI_WMA301=y' port/uboot-2026.10/mt7981_tplink_wma301v2_experimental_defconfig
       - name: Prepare Web UI
         run: npm ci --prefix upstream/failsafe/embedded --no-audit --no-fund
       - name: Build experimental BL33
@@ -54,6 +58,33 @@ jobs:
           make -C upstream olddefconfig
           python3 port/uboot-2026.10/apply.py upstream --verify
           make -C upstream -j"$(nproc)" all
+      - name: Audit embedded V4 UI and Toolbox favicon
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import gzip
+          base = Path("upstream/failsafe/embedded/fsdata-wma301/.min")
+          required = {
+              "index.html.gz": "WMA301 恢复模式",
+              "main.js.gz": "实验版禁止写入 Flash",
+              "style.css.gz": "--bg:",
+              "favicon.svg.gz": "#102536",
+              "initramfs.html.gz": "initramfs",
+              "fip.html.gz": "#uboot",
+              "bl2.html.gz": "#uboot"
+          }
+          for asset, marker in required.items():
+              p = base / asset
+              if not p.is_file():
+                  raise SystemExit("V4 asset missing: " + str(p))
+              data = gzip.decompress(p.read_bytes()).decode()
+              if marker not in data:
+                  raise SystemExit("V4 UI marker missing: " + str(p))
+          config = Path("upstream/.config").read_text()
+          if "CONFIG_WEBUI_FAILSAFE_UI_WMA301=y" not in config:
+              raise SystemExit("V4 UI not selected by Kconfig")
+          print("V4 SPA, dark/light CSS, original Toolbox favicon and safe routes embedded")
+          PY
       - name: Package WMABL33 v1 and cross-check Toolbox format
         run: |
           set -euo pipefail
