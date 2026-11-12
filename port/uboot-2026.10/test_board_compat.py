@@ -3,6 +3,7 @@
 These tests touch only source text. They do not access a device or NAND.
 """
 from pathlib import Path
+import re
 import unittest
 
 ROOT = Path(__file__).resolve().parent
@@ -14,6 +15,7 @@ WEB = (ROOT / "fsdata-wma301/main.js").read_text()
 README = (ROOT / "README.md").read_text()
 WRITER = (ROOT / "wma301_oem_bl33.c").read_text()
 APPLY = (ROOT / "apply.py").read_text()
+BACKUP = (ROOT / "wma301_backup.c").read_text()
 
 
 class LegacyBootTests(unittest.TestCase):
@@ -38,11 +40,12 @@ class LegacyBootTests(unittest.TestCase):
 
     def test_reset_and_mesh_boot_web_without_serial(self):
         # The 2026.10 btnchk accepts an explicit Reset label.
-        self.assertIn('#define WMA301_CHECK_BUTTONS "btnchk"', BOARD)
         self.assertIn('env_set("btnchk_key", "reset,mesh")', BOARD)
-        self.assertIn('env_set("check_buttons", WMA301_CHECK_BUTTONS)', BOARD)
         self.assertIn('btnchk_key=reset,mesh', ENV)
-        self.assertIn('check_buttons=btnchk', ENV)
+        self.assertNotIn('env_set("check_buttons"', BOARD)
+        self.assertNotIn('WMA301_CHECK_BUTTONS', BOARD)
+        self.assertNotRegex(ENV, r"(?m)^check_buttons=")
+        self.assertIn('strstr(bootcmd, "run check_buttons")', BOARD)  # legacy migration only
         self.assertNotIn('if button mesh; then bootmenu', BOARD)
         self.assertNotIn('if button mesh; then bootmenu', ENV)
         self.assertNotIn('check_buttons=bootmenu', ENV)
@@ -55,6 +58,8 @@ class LegacyBootTests(unittest.TestCase):
         self.assertIn('CONFIG_CMD_BOOTMENU=y', CONFIG)
         self.assertIn('bootmenu_3=Start Web failsafe=httpd', ENV)
         self.assertIn('bootmenu_default=0', ENV)
+        self.assertIn('failsafe_led_idle=red:status on', ENV)
+        self.assertIn('failsafe_led_ready=green:status blink 1000', ENV)
 
     def test_boot_compat_module_not_tied_to_ui_selection(self):
         self.assertIn('obj-y += wma301_board_compat.o', APPLY)
@@ -74,6 +79,30 @@ class LegacyBootTests(unittest.TestCase):
         self.assertIn('0x20000', WEB)
         self.assertNotIn('0x200000', WEB)
         self.assertNotIn('0x200000', README)
+
+    def test_read_only_backup_partitions_and_mac_format(self):
+        allowlist = BACKUP.split('static const struct wma301_part allowed[] = {', 1)[1].split('};', 1)[0]
+        rows = re.findall(r'\{\s*"([^"]+)"\s*,\s*0x([0-9a-fA-F]+)\s*,\s*0x([0-9a-fA-F]+)\s*\}', allowlist)
+        actual = [(name, int(offset, 16), int(size, 16)) for name, offset, size in rows]
+        expected = [
+            ("bl2", 0x000000, 0x020000),
+            ("fip", 0x020000, 0x3a0000),
+            ("reserved", 0x3c0000, 0x040000),
+            ("factory_info", 0x400000, 0x080000),
+            ("art", 0x480000, 0x080000),
+            ("config", 0x500000, 0x200000),
+        ]
+        self.assertEqual(actual, expected)
+        self.assertIn('mtd_read(session->mtd', BACKUP)
+        self.assertIn('WMA301_BACKUP_CHUNK   (16 * 1024)', BACKUP)
+        for forbidden in ("mtd_write(", "mtd_erase(", "flash_open_target("):
+            self.assertNotIn(forbidden, BACKUP)
+        self.assertIn('mtd->size != part->size', BACKUP)
+        self.assertIn('mtd->offset != part->offset', BACKUP)
+        self.assertIn('mtd->erasesize != WMA301_ERASE_BYTES', BACKUP)
+        self.assertIn('String((S.sys && S.sys.mac)', WEB)
+        self.assertIn('.toUpperCase();', WEB)
+        self.assertIn('reserved', README)
 
     def test_deliberate_firmware_web_limit(self):
         self.assertIn('sysupgrade.itb', WEB)

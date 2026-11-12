@@ -33,6 +33,7 @@ struct wma301_part {
 static const struct wma301_part allowed[] = {
 	{ "bl2",          0x000000, 0x020000 },
 	{ "fip",          0x020000, 0x3a0000 },
+	{ "reserved",     0x3c0000, 0x040000 },
 	{ "factory_info", 0x400000, 0x080000 },
 	{ "art",          0x480000, 0x080000 },
 	{ "config",       0x500000, 0x200000 },

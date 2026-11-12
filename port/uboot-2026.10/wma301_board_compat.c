@@ -15,7 +15,6 @@
 #define WMA301_MTDIDS "spi-nand0=spi-nand0"
 #define WMA301_MTDPARTS "spi-nand0:128k(bl2)ro,3712k(fip)ro,256k(reserved)ro,512k(factory_info)ro,512k(art)ro,2048k(config)ro,-(ubi)"
 #define WMA301_BOOTCMD "run boot_production ; run boot_recovery ; httpd"
-#define WMA301_CHECK_BUTTONS "btnchk"
 
 static void wma301_repair_2025_env(void)
 {
@@ -62,8 +61,7 @@ static void wma301_repair_2025_env(void)
 	 * no serial cable. Upstream Reset may also select default env.
 	 */
 	env_set("btnchk_key", "reset,mesh");
-	env_set("check_buttons", WMA301_CHECK_BUTTONS);
-
+	
 	/* Manual serial bootmenu only; never divert button recovery into a menu. */
 	env_set("bootmenu_default", "0");
 	env_set("bootmenu_delay", "30");

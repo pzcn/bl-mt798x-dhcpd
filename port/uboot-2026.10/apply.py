@@ -284,7 +284,9 @@ def verify(tree):
         raise RuntimeError("WMA301 V4 UI files not installed")
     javascript = (ui / "main.js").read_text()
     if ("0x200000" in javascript or "0x20000" not in javascript or
-            'precheck(file, "fip"' not in javascript):
+            'precheck(file, "fip"' not in javascript or
+            'String((S.sys && S.sys.mac)' not in javascript or
+            '.toUpperCase();' not in javascript):
         raise RuntimeError("WMABL33 UI has stale FIP warning or missing update route")
     if ("gpios = <&pio 14 GPIO_ACTIVE_HIGH>;" not in dts or
             "gpios = <&pio 15 GPIO_ACTIVE_HIGH>;" not in dts or
@@ -294,6 +296,7 @@ def verify(tree):
     backup = (tree / "board/mediatek/common/wma301_backup.c").read_text()
     for marker in ('/backup/info', '/backup/main',
                    'wma301_backup_open(part)', 'mtd_read(session->mtd',
+                   '{ "reserved",     0x3c0000, 0x040000 }',
                    'HTTP_CB_RESPONDING', 'Content-Length:', 'HTTP_RESP_CUSTOM'):
         if marker not in backup:
             raise RuntimeError("WMA301 read-only backup missing: " + marker)
@@ -341,8 +344,6 @@ def verify(tree):
                    'mtd_read(mtd, 0x1c, sizeof(mac)',
                    'eth_env_set_enetaddr("ethaddr", mac)',
                    'env_set("btnchk_key", "reset,mesh")',
-                   'env_set("check_buttons", WMA301_CHECK_BUTTONS)',
-                   '#define WMA301_CHECK_BUTTONS "btnchk"',
                    'env_set("bootmenu_3", "Start Web failsafe=httpd")'):
         if marker not in compat:
             raise RuntimeError("WMA301 2025 runtime migration missing: " + marker)
@@ -356,12 +357,13 @@ def verify(tree):
     if "obj-$(CONFIG_MTK_WEB_FAILSAFE) += wma301_oem_bl33.o" not in mk:
         raise RuntimeError("OEM BL33 writer must link whenever failsafe.c is built")
     env_default = (tree / "defenvs" / (NAME + "_env")).read_text()
-    if ("btnchk_key=reset,mesh" not in env_default or
-            "check_buttons=btnchk" not in env_default):
+    if "btnchk_key=reset,mesh" not in env_default:
         raise RuntimeError("Default environment lacks headless Reset/Mesh Web recovery")
-    if ('env_set("btnchk_key", "reset,mesh")' not in compat or
-            '#define WMA301_CHECK_BUTTONS "btnchk"' not in compat):
+    if 'env_set("btnchk_key", "reset,mesh")' not in compat:
         raise RuntimeError("Runtime override breaks headless button Web recovery")
+    if ('env_set("check_buttons"' in compat or
+            re.search(r"(?m)^check_buttons=", env_default)):
+        raise RuntimeError("Unused check_buttons runtime/default assignment must be absent")
 
     if ('#define WMA301_BOOTCMD "run boot_production ; run boot_recovery ; httpd"' not in compat or
             'strstr(bootcmd, "run check_buttons")' not in compat):

@@ -35,28 +35,30 @@ No partition table is flashed as part of BL33 migration.
   `bootcmd=mtkboardboot` in `ubootenv` / `ubootenv2`. That command does
   not exist in 2026.10. At `board_late_init`, an empty/missing `bootcmd`,
   or one containing `mtkboardboot`, is replaced **in RAM** with the
-  new `check_buttons → boot_production → boot_recovery → httpd`
-  sequence. Missing UBI boot scripts are also populated. No `saveenv`.
+  new `boot_production → boot_recovery → httpd` sequence.
+  Upstream already checks the buttons before the boot countdown;
+  `check_buttons` is no longer set or executed. A saved legacy
+  `bootcmd` invoking it is still migrated in RAM. Missing UBI boot
+  scripts are also populated. No `saveenv`.
 - **MAC:** the original 6-byte MAC is read from `factory_info+0x1c`
   via the MTD layer, validated and copied to `ethaddr` in RAM.
   `mac_from_mtd=0` can opt out, as on V4. Random Ethernet MAC
   generation is disabled. If the factory MAC is invalid, no bogus MAC
   is installed.
-- **Headless Web recovery (Reset or Mesh):** hold either physical
-  button **starting before power-on** and keep holding until the recovery
-  LED/Web server is active (allow roughly **6–9 seconds** from power-on,
-  depending on BL2/DDR init and network bring-up; do not release at only
-  4 seconds). Upstream 2026.10 `common/main.c` already runs `btnchk`
-  **before** `bootdelay_process()`; adding `preboot=run check_buttons`
-  would duplicate detection. We removed the second button check from
-  `bootcmd` instead. `btnchk_key=reset,mesh`
-  and `check_buttons=btnchk` are set both in the default env and
-  in `board_late_init` after any stored 2025 environment is imported.
-  Upstream 2026.10 excludes Reset only from its *default* key list:
-  an explicitly configured Reset label is supported. A successful
-  hold starts `httpd` directly at `http://192.168.1.1/`,
-  **without UART interaction**. This must still be proven on actual
-  WMA301 V2.0 hardware.
+- **Headless Web recovery (Reset or Mesh):** **press and hold Reset
+  or Mesh before power-on**, then keep holding through startup.
+  **上电后持续按住约 6 秒：红灯常亮后不要松手，直到绿灯开始闪烁再松手。**
+  This is an LED-based guide, not an exact elapsed-time guarantee:
+  BootROM/BL2, DDR training and physical board startup can vary.
+  The default `failsafe_led_idle=red:status on` marks the button-check
+  stage and `failsafe_led_ready=green:status blink 1000` marks
+  Web recovery. Upstream `common/main.c` executes `btnchk` **before**
+  `bootdelay_process()`; `bootcmd` does not run it a second time.
+  `btnchk_key=reset,mesh` is supplied by both the default env and
+  the board's RAM-only legacy migration, so a stored 2025 environment
+  cannot remove this key selection. The recovery UI is at
+  `http://192.168.1.1/` and needs no UART. Actual LED behavior and
+  button timing still need hardware verification on WMA301 V2.0.
 - **Manual TTL bootmenu:** at the serial `MT7981>` prompt, run
   `bootmenu` for installed FIT, recovery FIT, TFTP **RAM boot**,
   Web failsafe and reboot. Neither physical button starts a menu
@@ -76,7 +78,9 @@ No partition table is flashed as part of BL33 migration.
 The standalone `/backup/info` (GET) and `/backup/main` (POST)
 endpoints preserve the V4/Toolbox protocol. Only these named, OEM-map
 matched partitions may be downloaded: `bl2`, `fip`,
-`factory_info`, `art`, `config`. The handler streams
+`reserved` (0x3c0000, 256 KiB), `factory_info`, `art`,
+`config`. The `reserved` partition's purpose is not yet confirmed,
+so backing it up may help future factory restoration. The handler streams
 `mtd_read` responses in 16 KiB chunks with the correct
 `Content-Length`, without loading the entire FIP in U-Boot RAM.
 It exposes no full-chip or arbitrary range backups and performs no

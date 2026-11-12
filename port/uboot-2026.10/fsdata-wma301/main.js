@@ -249,7 +249,7 @@ const VIEWS = {};
 
 VIEWS.firmware = () => {
 	const sys = S.sys || {};
-	const mac = (S.sys && S.sys.mac) || (S.env && S.env.ethaddr) || "—";
+	const mac = String((S.sys && S.sys.mac) || (S.env && S.env.ethaddr) || "—").toUpperCase();
 	view(`<div class="grid">
 		<div class="stat"><div class="k">设备</div><div class="v">${esc((sys.board && sys.board.model) || "WMA301 V2")}</div></div>
 		<div class="stat"><div class="k">U-Boot</div><div class="v">${esc((S.ver.match(/U-Boot \S+/) || ["2026.10"])[0])}</div></div>
@@ -306,7 +306,7 @@ VIEWS.uboot = () => {
 };
 
 VIEWS.backup = async () => {
-	view(`<div class="card"><h2>备份</h2><p class="sub">只读备份 bl2、fip、factory_info、art、config。<b>art</b> 包含无线校准数据；出厂信息及 config 可能包含设备标识或敏感配置。请断开 WAN、使用直连 LAN 备份并妥善保存。</p>
+	view(`<div class="card"><h2>备份</h2><p class="sub">只读备份 bl2、fip、reserved、factory_info、art、config。<b>reserved</b>（256 KiB）内容尚未确认，建议留存以便以后恢复；<b>art</b> 包含无线校准数据。出厂信息及 config 可能含设备标识或敏感配置，请断开 WAN、直连 LAN 备份并妥善保存。</p>
 		<div id="bk_list">正在读取分区表…</div></div>`);
 	try {
 		const info = await get("/backup/info", true);
