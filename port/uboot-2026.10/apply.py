@@ -13,6 +13,11 @@ def patch_once(s, needle, extra):
         raise RuntimeError("Unsupported upstream API: " + needle)
     return s.replace(needle, needle + extra, 1)
 
+def patch_before(s, needle, extra):
+    if s.count(needle) != 1:
+        raise RuntimeError("Unsupported upstream API: " + needle)
+    return s.replace(needle, extra + needle, 1)
+
 def install(tree):
     for suffix, subdir in [(".dts", "arch/arm/dts"),
                            ("_defconfig", "configs"),
@@ -89,7 +94,7 @@ def install(tree):
 
     kpath = tree / "failsafe/Kconfig"
     config_text = kpath.read_text()
-    config_text = patch_once(
+    config_text = patch_before(
         config_text, "config WEBUI_FAILSAFE_UI_BRUTALISM\n",
         'config WEBUI_FAILSAFE_UI_WMA301\n'
         '\tbool "WMA301 V4 light/dark recovery UI"\n'
@@ -109,7 +114,7 @@ def install(tree):
     # styles. Register only this static SVG; do not expose theme writes.
     core_file = tree / "failsafe/core.c"
     core = core_file.read_text()
-    core = patch_once(core,
+    core = patch_before(core,
         "/*\n * A registered JS URI is the name of the embedded asset",
         '#if IS_ENABLED(CONFIG_WEBUI_FAILSAFE_UI_WMA301)\n'
         'static void wma301_favicon_handler(enum httpd_uri_handler_status status,\n'
