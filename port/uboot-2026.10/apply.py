@@ -224,8 +224,10 @@ def verify(tree):
     ui = tree / "failsafe/embedded/fsdata-wma301"
     if not (ui / "main.js").is_file() or not (ui / "favicon.svg").is_file():
         raise RuntimeError("WMA301 V4 UI files not installed")
-    if "实验版禁止写入 Flash" not in (ui / "main.js").read_text():
-        raise RuntimeError("V4 frontend flash guards missing")
+    javascript = (ui / "main.js").read_text()
+    if ("setenv wma301_bl33_update_enable 1" not in javascript or
+            'precheck(file, "fip"' not in javascript):
+        raise RuntimeError("WMABL33 v1 frontend missing or locked UI route missing")
     if "favicon.svg" not in (tree / "failsafe/core.c").read_text():
         raise RuntimeError("V4 favicon route is missing")
     if (tree / "failsafe/modules/upgrade.c").read_text().count(
