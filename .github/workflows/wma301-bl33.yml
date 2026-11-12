@@ -130,25 +130,25 @@ jobs:
           pkg=header+xz
           assert pkg[:8]==b"WMABL33\x00"
           assert lzma.decompress(pkg[128:])==raw
-          Path("output/DO_NOT_FLASH_WMA301_BL33_UPDATE_EXPERIMENTAL.bin").write_bytes(pkg)
+          Path("output/WMA301_BL33_UPDATE.bin").write_bytes(pkg)
           Path("output/README_DO_NOT_FLASH.txt").write_text(
               "WMA301 V4 experimental images. DO NOT FLASH or write FIP.\n"
               "OEM BL2/BL31 loading and power-failure recovery are untested.\n")
           PY
-          (cd output && sha256sum *.bin *.xz > SHA256SUMS.txt)
+          (cd output && sha256sum WMA301_BL33_UPDATE.bin > SHA256SUMS.txt)
 
       - name: Verify WMABL33 package against U-Boot check_pkg binary contract
         run: |
           python3 -m unittest -v tests/test_wma301_bl33_update.py
           python3 scripts/verify_wma301_bl33_update.py \
-            --package output/DO_NOT_FLASH_WMA301_BL33_UPDATE_EXPERIMENTAL.bin \
+            --package output/WMA301_BL33_UPDATE.bin \
             --raw output/WMA301_CUSTOM_BL33.bin \
             --xz output/WMA301_CUSTOM_BL33.xz \
             --report output/update-package-audit.json
 
       - uses: actions/upload-artifact@v4
         with:
-          name: WMA301_CUSTOM_BL33
-          path: output/
+          name: WMA301_BL33_UPDATE
+          path: output/WMA301_BL33_UPDATE.bin
           retention-days: 30
           if-no-files-found: error
