@@ -1,0 +1,135 @@
+name: WMA301 v4 staging source apply and cross-build
+on:
+  push:
+    branches: ["feat/wma301-v4-web-recovery"]
+    paths:
+      - ".github/v4-input/**"
+      - ".github/workflows/wma301-v4-stage.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CROSS_COMPILE: aarch64-linux-gnu-
+      UB: uboot-mtk-20250711
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+          fetch-depth: 2
+
+      - name: Verify the five uploaded patch pieces and patch provenance
+        run: |
+          python3 - <<'PY'
+          import base64, hashlib, lzma
+          from pathlib import Path
+          directory = Path(".github/v4-input")
+          parts = [directory / f"patch.xz.b64.part{i}" for i in range(5)]
+          data = [p.read_text().strip() for p in parts]
+          assert [len(x) for x in data] == [5000, 5000, 5000, 5000, 4348]
+          decoded = base64.b64decode("".join(data), validate=True)
+          patch = lzma.decompress(decoded)
+          digest = hashlib.sha256(patch).hexdigest()
+          assert digest == "115b748fc1d4f2bcf99b37361d3947914c6ef0eb8abb3dacbfbfbe25bf49edf1", digest
+          Path("/tmp/wma301-v4-source.patch").write_bytes(patch)
+          print(f"Verified user-supplied v4 source: {len(patch)} bytes, sha256 {digest}")
+          PY
+
+      - name: Apply non-overlapping v4 changes on top of existing v2 Web guards
+        run: |
+          set -euo pipefail
+          git apply --check /tmp/wma301-v4-source.patch
+          git apply /tmp/wma301-v4-source.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("uboot-mtk-20250711/failsafe/modules/misc.c")
+          src=p.read_text()
+          before='#ifndef CONFIG_MTK_UPGRADE_FW_ONLY\n\thttpd_register_uri_handler(inst, "/uboot.html", &html_handler, NULL);\n#endif'
+          after='#if !defined(CONFIG_MTK_UPGRADE_FW_ONLY) || defined(CONFIG_MTK_UPGRADE_OEM_FIP_BL33)\n\thttpd_register_uri_handler(inst, "/uboot.html", &html_handler, NULL);\n#endif'
+          assert src.count(before) == 1, "Unexpected current firmware-only Web handler guard"
+          p.write_text(src.replace(before,after))
+          PY
+          node --check "$UB/failsafe/embedded/fsdata-wma301/main.js"
+          node --check "$UB/failsafe/embedded/fsdata-bootstrap/main.js"
+          git diff --check
+
+      - name: Install cross compiler and WMA301 U-Boot dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            gcc-aarch64-linux-gnu build-essential flex bison libssl-dev \
+            device-tree-compiler bc python3 python3-setuptools python3-pyelftools \
+            swig file binutils-aarch64-linux-gnu nodejs npm
+
+      - name: Compile WMA301 v4 BL33 and test layout/protection config
+        run: |
+          set -euo pipefail
+          if test -f "$UB/failsafe/embedded/package.json"; then
+            npm install --prefix "$UB/failsafe/embedded" --no-audit --no-fund
+          fi
+          make -C "$UB" mt7981_tplink_wma301v2_custom_defconfig
+          CFG="$UB/.config"
+          need() { grep -Fqx "$1" "$CFG" || { echo "MISSING: $1" >&2; exit 1; }; }
+          need 'CONFIG_TEXT_BASE=0x41e00000'
+          need 'CONFIG_MTK_UPGRADE_OEM_FIP_BL33=y'
+          need 'CONFIG_MTK_MAC_FROM_MTD=y'
+          need 'CONFIG_MTK_MAC_MTD_PART="factory_info"'
+          need 'CONFIG_MTK_MAC_MTD_OFFSET=0x1c'
+          need 'CONFIG_WEBUI_FAILSAFE_UI_WMA301=y'
+          need 'CONFIG_ENV_IS_IN_UBI=y'
+          need 'CONFIG_MTK_UBI_RESERVED_VOLUMES="ubootenv=124k;ubootenv2=124k"'
+          need 'CONFIG_MTK_UPGRADE_FW_ONLY=y'
+          if grep -Eq '^CONFIG_(ENABLE_NAND_NMBM|MTK_DUAL_BOOT|MEDIATEK_MULTI_MTD_LAYOUT|WEBUI_FAILSAFE_NAND_RAW)=y$' "$CFG"; then
+            echo "Incompatible flash layout or raw flash UI enabled" >&2
+            exit 1
+          fi
+          make -C "$UB" -j 2 all
+          mkdir -p output
+          test -s "$UB/u-boot.bin"
+          cp "$UB/u-boot.bin" output/DO_NOT_FLASH_WMA301_V4_BL33.bin
+          cp "$CFG" output/u-boot.config
+
+      - name: Audit linked BL33 and XZ envelope
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, lzma, struct
+          from pathlib import Path
+          p=Path("output/DO_NOT_FLASH_WMA301_V4_BL33.bin")
+          raw=p.read_bytes()
+          assert struct.unpack_from("<Q",raw,8)[0]==0x41e00000
+          xz=lzma.compress(raw,format=lzma.FORMAT_XZ,check=lzma.CHECK_CRC32,preset=9)
+          assert lzma.decompress(xz)==raw
+          assert 0x23848 + len(xz) <= 0x3c0000
+          Path("output/DO_NOT_FLASH_WMA301_V4_BL33.xz").write_bytes(xz)
+          report={"raw_bytes":len(raw),"xz_bytes":len(xz),
+            "candidate_fip_end":hex(0x23848+len(xz)),
+            "sha256":hashlib.sha256(raw).hexdigest(),
+            "status":"OFFLINE CROSS BUILD ONLY - DO NOT FLASH",
+            "bl31_oem_hardware_boot_tested":False,
+            "fip_self_update_hardware_tested":False}
+          Path("output/audit.json").write_text(json.dumps(report,indent=2)+"\n")
+          print(json.dumps(report,indent=2))
+          PY
+
+      - name: Commit validated source changes to v4 feature branch
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add uboot-mtk-20250711
+          git diff --cached --check
+          git diff --cached --quiet && { echo "No changes to commit"; exit 0; }
+          git commit -m "feat(wma301): integrate v4 Chinese Web UI, OEM MAC, and BL33 updater (experimental)"
+          git push origin HEAD:feat/wma301-v4-web-recovery
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DO_NOT_FLASH_WMA301_V4_CI
+          path: output/
+          if-no-files-found: error
+          retention-days: 14
