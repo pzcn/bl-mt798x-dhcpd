@@ -165,8 +165,8 @@ function steps(cur) {
 
 /* kind: firmware | initramfs | fip */
 async function runUpload(kind, file, area) {
-	if (kind !== "initramfs") {
-		area.innerHTML = errorHtml("实验版禁止写入 Flash", { error: "仅允许内存启动 initramfs，不接受固件或 BL33 刷写。" });
+	if (kind !== "initramfs" && kind !== "fip") {
+		area.innerHTML = errorHtml("通用刷写已禁用", { error: "仅允许内存启动 initramfs 或有严格校验的 WMABL33 更新。" });
 		return;
 	}
 	const titles = { firmware: "固件", initramfs: "内存启动镜像", fip: "U-Boot 更新包" };
@@ -186,7 +186,7 @@ async function runUpload(kind, file, area) {
 		}
 		const parts = resp.trim().split(" ");
 		const msg = kind === "initramfs" ? "确认后设备会从内存启动这个镜像，flash 不会被修改。" :
-			kind === "fip" ? "将替换引导区中的 U-Boot（BL33），原厂 BL2/BL31 保持不变。<b>写入期间断电会导致无法启动，需要拆机 TTL 修复。</b>" :
+			kind === "fip" ? "将通过专用写入器替换原厂 FIP 中的 BL33，保留 BL2/BL31。<b>必须提前备份 FIP，并已通过 TTL 临时授权；写入失败或断电仍可能变砖。</b>" :
 			"将写入 UBI 区域（0x700000 之后）。引导区、出厂信息和无线校准数据不会被修改。写入期间请勿断电。";
 		area.innerHTML = steps(1) + `<div class="note ok">上传完成，校验通过。</div>
 			<div class="kv"><div>文件</div><div>${esc(file.name)}</div><div>大小</div><div>${human(+parts[0] || file.size)}</div>
@@ -263,8 +263,8 @@ VIEWS.firmware = () => {
 };
 
 async function precheck(file, kind, area) {
-	if (kind !== "initramfs") {
-		area.innerHTML = errorHtml("实验版禁止写入 Flash", { error: "请先完成硬件验证。" });
+	if (kind !== "initramfs" && kind !== "fip") {
+		area.innerHTML = errorHtml("通用刷写已禁用", { error: "只允许 initramfs / WMABL33 两种操作。" });
 		return;
 	}
 	const head = await file.slice(0, 512).arrayBuffer();
@@ -296,11 +296,13 @@ VIEWS.initramfs = () => {
 };
 
 VIEWS.uboot = () => {
-	view(`<div class="card"><h2>U-Boot 更新</h2>
-		<div class="note warn"><b>此版本只供验证，禁止 Web 更新 BL33。</b>OEM BL2/BL31 虽已能加载新版 U-Boot，但尚未完成完整的自动恢复和固件升级验证。</div>
-		<p class="sub">后续正式更新包仍使用 <span class="mono">WMA301_BL33_UPDATE.bin</span>，格式为 WMABL33 v1（128 字节头 + XZ/CRC32），与 Toolbox PR #4 一致。</p>
-		<p class="sub">当前 CI 编译成功不代表可以安全刷写。请使用 TTL 验证设备操作，不要向原厂 FIP 直接写入 BL33。</p>
-		<p class="sub">当前：<span class="mono">${esc(S.ver)}</span></p></div>`);
+	view(`<div class="card"><h2>U-Boot 更新 · WMABL33 v1</h2>
+		<p class="sub">只接受 <span class="mono">WMA301_BL33_UPDATE.bin</span>（128 字节 WMABL33 v1 头 + XZ/CRC32 压缩 BL33）。服务端将验证板型、两个 SHA-256、加载地址及原厂 FIP 结构，保留原厂 BL2/BL31。</p>
+		<div class="note warn"><b>实验性功能，具有变砖风险：</b>只会修改原厂 FIP 中的 BL33；如果写入中断或新 BL33 无法启动，仍可能需要 TTL/BootROM 救援。请提前备份原厂 FIP。</div>
+		<div class="note warn"><b>默认锁定写入。</b>须先在 TTL 命令行执行 <span class="mono">setenv wma301_bl33_update_enable 1</span>，不要执行 <span class="mono">saveenv</span>。授权只在当前内存会话有效，写入前会被消费。未授权时可以上传校验，但不能写入。</div>
+		<div id="ub_area">${steps(0)}${dropZone("ub", ".bin", "仅支持 WMA301_BL33_UPDATE.bin")}</div>
+		<p class="sub" style="margin-top:12px">当前：<span class="mono">${esc(S.ver)}</span></p></div>`);
+	bindDrop("ub", (file) => precheck(file, "fip", $("ub_area")));
 };
 
 VIEWS.backup = async () => {
