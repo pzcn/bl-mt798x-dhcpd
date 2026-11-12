@@ -1,0 +1,170 @@
+/* Experimental: OEM BL2/BL31 unchanged. Do not flash this port. */
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Copyright (c) 2026
+ * Author: Mikhail Zhilkin <csharper2005@gmail.com>
+ */
+
+/dts-v1/;
+#include "mt7981.dtsi"
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/linux-event-codes.h>
+
+/ {
+	#address-cells = <1>;
+	#size-cells = <1>;
+	model = "TP-Link WMA301 V2 (experimental 2026.10)";
+	compatible = "tplink,wma301-v2", "mediatek,mt7981";
+
+	chosen {
+		stdout-path = &uart0;
+		tick-timer = &timer0;
+	};
+
+	memory@40000000 {
+		device_type = "memory";
+		reg = <0x40000000 0x10000000>;
+	};
+
+	keys {
+		compatible = "gpio-keys";
+
+		button-0 {
+			label = "mesh";
+			linux,code = <BTN_9>;
+			gpios = <&pio 0 GPIO_ACTIVE_LOW>;
+		};
+
+		button-1 {
+			label = "reset";
+			linux,code = <KEY_RESTART>;
+			gpios = <&pio 1 GPIO_ACTIVE_LOW>;
+		};
+	};
+
+	leds {
+		compatible = "gpio-leds";
+
+		led-0 {
+			label = "red:status";
+			gpios = <&pio 14 GPIO_ACTIVE_LOW>;
+		};
+
+		led-1 {
+			label = "green:status";
+			gpios = <&pio 15 GPIO_ACTIVE_LOW>;
+		};
+	};
+};
+
+&uart0 {
+	mediatek,force-highspeed;
+	status = "okay";
+};
+
+&uart1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart1_pins>;
+	status = "disabled";
+};
+
+&eth {
+	status = "okay";
+	mediatek,gmac-id = <0>;
+	phy-mode = "2500base-x";
+	mediatek,switch = "mt7531";
+	reset-gpios = <&pio 39 GPIO_ACTIVE_HIGH>;
+
+	fixed-link {
+		speed = <2500>;
+		full-duplex;
+	};
+};
+
+&pio {
+	spi_flash_pins: spi0-pins-func-1 {
+		mux {
+			function = "flash";
+			groups = "spi0", "spi0_wp_hold";
+		};
+
+		conf-pu {
+			pins = "SPI0_CS", "SPI0_HOLD", "SPI0_WP";
+			drive-strength = <MTK_DRIVE_8mA>;
+			bias-pull-up = <MTK_PUPD_SET_R1R0_00>;
+		};
+
+		conf-pd {
+			pins = "SPI0_CLK", "SPI0_MOSI", "SPI0_MISO";
+			drive-strength = <MTK_DRIVE_8mA>;
+			bias-pull-down = <MTK_PUPD_SET_R1R0_00>;
+		};
+	};
+
+	spic_pins: spi1-pins-func-1 {
+		mux {
+			function = "spi";
+			groups = "spi1_1";
+		};
+	};
+
+	uart1_pins: spi1-pins-func-3 {
+		mux {
+			function = "uart";
+			groups = "uart1_2";
+		};
+	};
+
+	pwm_pins: pwm0-pins-func-1 {
+		mux {
+			function = "pwm";
+			groups = "pwm0_1", "pwm1_0";
+		};
+	};
+};
+
+&pwm {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pwm_pins>;
+	status = "okay";
+};
+
+&spi0 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	pinctrl-names = "default";
+	pinctrl-0 = <&spi_flash_pins>;
+	status = "okay";
+	must_tx;
+	enhance_timing;
+	dma_ext;
+	ipm_design;
+	support_quad;
+	tick_dly = <2>;
+	sample_sel = <0>;
+
+	spi_nand@0 {
+		compatible = "spi-nand";
+		reg = <0>;
+		spi-max-frequency = <52000000>;
+
+		partitions {
+			compatible = "fixed-partitions";
+			#address-cells = <1>;
+			#size-cells = <1>;
+
+			/* WMA301 v2 OEM /proc/mtd observation; no repartitioning. */
+			partition@0 { label = "bl2"; reg = <0x0 0x100000>; read-only; };
+			partition@100000 { label = "u-boot-env"; reg = <0x100000 0x100000>; read-only; };
+			partition@200000 { label = "fip"; reg = <0x200000 0x200000>; read-only; };
+			partition@400000 { label = "factory"; reg = <0x400000 0x80000>; read-only; };
+			partition@480000 { label = "eeprom"; reg = <0x480000 0x80000>; read-only; };
+			partition@500000 { label = "stock-config"; reg = <0x500000 0x200000>; read-only; };
+			partition@700000 { label = "ubi"; reg = <0x700000 0x7900000>; };
+		};
+	};
+};
+
+&watchdog {
+	status = "disabled";
+};
