@@ -69,55 +69,34 @@ def install(tree):
     assert s.count(MARKER) == 2
     print("Installed two Web upload flash guards")
 
-    # The previous 2025.07 build may have saved an incomplete environment
-    # to ubootenv/ubootenv2. UBI import reports success even without bootcmd.
-    # Do NOT erase or overwrite these volumes: restore only missing runtime
-    # boot variables and never call env_save() here.
-    board = tree / "board/mediatek/mt7981/mt7981_rfb.c"
+    # V4->2026 compatibility is an isolated, auditable board module.
+    boarddir = tree / "board/mediatek/mt7981"
+    board = boarddir / "mt7981_rfb.c"
+    (boarddir / "wma301_board_compat.h").write_bytes(
+        (HERE / "wma301_board_compat.h").read_bytes())
     board_text = board.read_text(encoding="utf-8")
-    board_anchor = "\tenv_relocate();\n\treturn 0;\n"
-    repair = (
-        "\tenv_relocate();\n"
-        "\t/* Always discard any persistent OEM-BL33 write authorization. */\n"
-        "\tenv_set(\"wma301_bl33_update_enable\", NULL);\n"
-        "\t/* WMA301_2025_MTD_LAYOUT: ensure old UBI env cannot override layout. */\n"
-        "\tenv_set(\"mtdids\", \"spi-nand0=spi-nand0\");\n"
-        "\tenv_set(\"mtdparts\", \"spi-nand0:128k(bl2)ro,3712k(fip)ro,256k(reserved)ro,512k(factory_info)ro,512k(art)ro,2048k(config)ro,-(ubi)\");\n"
-
-        "\t/* WMA301_SAFE_BOOTCMD_FALLBACK: in-memory recovery for old UBI env. */\n"
-        "\tif (!env_get(\"bootcmd\") || !*env_get(\"bootcmd\")) {\n"
-        "\t\tputs(\"WMA301: no bootcmd in UBI env; enabling RAM-only boot fallback\\n\");\n"
-        "\t\tif (!env_get(\"loadaddr\"))\n"
-        "\t\t\tenv_set(\"loadaddr\", \"0x46000000\");\n"
-        "\t\tif (!env_get(\"btnchk_key\"))\n"
-        "\t\t\tenv_set(\"btnchk_key\", \"reset,mesh\");\n"
-        "\t\tif (!env_get(\"check_buttons\"))\n"
-        "\t\t\tenv_set(\"check_buttons\", \"btnchk\");\n"
-        "\t\tif (!env_get(\"boot_production\"))\n"
-        "\t\t\tenv_set(\"boot_production\", \"ubi part ubi && ubi read $loadaddr fit && bootm $loadaddr\");\n"
-        "\t\tif (!env_get(\"boot_recovery\"))\n"
-        "\t\t\tenv_set(\"boot_recovery\", \"ubi part ubi && ubi read $loadaddr recovery && bootm $loadaddr\");\n"
-        "\t\tenv_set(\"bootcmd\",\n"
-        "\t\t\t\"run check_buttons ; run boot_production ; run boot_recovery ; httpd\");\n"
-        "\t}\n"
-        "\treturn 0;\n"
-    )
-    if board_text.count(board_anchor) != 1:
-        raise RuntimeError("MT7981 board_late_init signature changed")
-    board.write_text(board_text.replace(board_anchor, repair, 1), encoding="utf-8")
-    print("Installed WMA301 bootcmd fallback (RAM only, no flash writes)")
+    board_text = patch_once(
+        board_text, '#include <linux/libfdt.h>\n',
+        '#include "wma301_board_compat.h"\n')
+    board_text = patch_once(
+        board_text, "\tenv_relocate();\n\treturn 0;\n",
+        "\twma301_board_runtime_init();\n")
+    board.write_text(board_text, encoding="utf-8")
+    print("Installed 2025 bootcmd/Mesh/MAC runtime migration (RAM only)")
 
     # Reuse the existing V4 Web design with 2026.10 resource registration.
     # The 2026.10 generic FIP writer cannot update OEM BL33. Install
     # the legacy WMABL33-only repacker as a WMA301-specific module.
     common = tree / "board/mediatek/common"
-    for name in ("wma301_oem_bl33.c", "wma301_oem_bl33.h"):
+    for name in ("wma301_oem_bl33.c", "wma301_oem_bl33.h",
+                 "wma301_board_compat.c"):
         (common / name).write_bytes((HERE / name).read_bytes())
     makefile = common / "Makefile"
     mk = makefile.read_text()
     mk = patch_once(mk,
         "obj-$(CONFIG_MTK_WEB_FAILSAFE) += failsafe.o\n",
-        "obj-$(CONFIG_WEBUI_FAILSAFE_UI_WMA301) += wma301_oem_bl33.o\n")
+        "obj-$(CONFIG_WEBUI_FAILSAFE_UI_WMA301) += wma301_oem_bl33.o\n"
+        "obj-$(CONFIG_WEBUI_FAILSAFE_UI_WMA301) += wma301_board_compat.o\n")
     makefile.write_text(mk)
 
     ui_src = HERE / "fsdata-wma301"
@@ -227,6 +206,8 @@ def verify(tree):
     required = [
         'CONFIG_TEXT_BASE=0x41e00000',
         'CONFIG_CMD_MTDPARTS=y',
+        'CONFIG_CMD_BOOTMENU=y',
+        'CONFIG_CMD_BUTTON=y',
         'CONFIG_MTD_PARTITIONS=y',
         'CONFIG_MTDIDS_DEFAULT="spi-nand0=spi-nand0"',
         'CONFIG_MTDPARTS_DEFAULT="spi-nand0:128k(bl2)ro,3712k(fip)ro,256k(reserved)ro,512k(factory_info)ro,512k(art)ro,2048k(config)ro,-(ubi)"',
@@ -257,7 +238,7 @@ def verify(tree):
         "WEBUI_FAILSAFE_CONSOLE", "WEBUI_FAILSAFE_FLASH",
         "WEBUI_FAILSAFE_FLASH_LAYOUT", "WEBUI_FAILSAFE_SIMG",
         "WEBUI_FAILSAFE_NAND_RAW", "WEBUI_FAILSAFE_GPT",
-        "WEB_FAILSAFE_ON_RAM_BOOT",
+        "WEB_FAILSAFE_ON_RAM_BOOT", "NET_RANDOM_ETHADDR",
     ]
     for key in denied:
         if re.search(r"^CONFIG_" + key + r"=y$", c, re.M):
@@ -269,10 +250,14 @@ def verify(tree):
     if not (ui / "main.js").is_file() or not (ui / "favicon.svg").is_file():
         raise RuntimeError("WMA301 V4 UI files not installed")
     javascript = (ui / "main.js").read_text()
-    if ("0x200000" not in javascript or
-            "0x20000" not in javascript or
+    if ("0x200000" in javascript or "0x20000" not in javascript or
             'precheck(file, "fip"' not in javascript):
-        raise RuntimeError("WMABL33 UI missing OEM physical-vs-logical offset warning")
+        raise RuntimeError("WMABL33 UI has stale FIP warning or missing update route")
+    if ("gpios = <&pio 14 GPIO_ACTIVE_HIGH>;" not in dts or
+            "gpios = <&pio 15 GPIO_ACTIVE_HIGH>;" not in dts or
+            "gpios = <&pio 0 GPIO_ACTIVE_LOW>;" not in dts or
+            "gpios = <&pio 1 GPIO_ACTIVE_LOW>;" not in dts):
+        raise RuntimeError("WMA301 V2 LED/button GPIO polarity mismatch")
     if "favicon.svg" not in (tree / "failsafe/core.c").read_text():
         raise RuntimeError("V4 favicon route is missing")
     if (tree / "failsafe/modules/upgrade.c").read_text().count(
@@ -296,16 +281,27 @@ def verify(tree):
     if "fsdata-wma301/" not in (tree / "failsafe/embedded/Makefile").read_text():
         raise RuntimeError("WMA301 UI embedding rule is missing")
     board = (tree / "board/mediatek/mt7981/mt7981_rfb.c").read_text()
-    if board.count("WMA301_SAFE_BOOTCMD_FALLBACK") != 1:
-        raise RuntimeError("Missing RAM-only missing-bootcmd migration")
-    if "env_set(\"wma301_bl33_update_enable\", NULL)" not in board:
-        raise RuntimeError("Write authorization not cleared on boot")
+    if board.count("wma301_board_runtime_init();") != 1:
+        raise RuntimeError("Missing WMA301 board runtime migration call")
+    compat = (tree / "board/mediatek/common/wma301_board_compat.c").read_text()
+    for marker in ('strstr(bootcmd, "mtkboardboot")',
+                   'env_set("bootcmd", WMA301_BOOTCMD)',
+                   'env_set("mtdids", WMA301_MTDIDS)',
+                   'env_set("mtdparts", WMA301_MTDPARTS)',
+                   'env_set("wma301_bl33_update_enable", NULL)',
+                   'get_mtd_device_nm("factory_info")',
+                   'mtd_read(mtd, 0x1c, sizeof(mac)',
+                   'eth_env_set_enetaddr("ethaddr", mac)',
+                   'if button mesh; then bootmenu 30; else btnchk; fi',
+                   'env_set("bootmenu_3", "Start Web failsafe=httpd")'):
+        if marker not in compat:
+            raise RuntimeError("WMA301 2025 runtime migration missing: " + marker)
+    if "env_save(" in compat or "saveenv" in compat:
+        raise RuntimeError("Boot migration must not persist environment")
+    if "wma301_board_compat.o" not in (
+            tree / "board/mediatek/common/Makefile").read_text():
+        raise RuntimeError("WMA301 compatibility object not linked")
 
-    if ('WMA301_2025_MTD_LAYOUT' not in board or
-            'env_set("mtdparts", "spi-nand0:128k(bl2)' not in board):
-        raise RuntimeError("Legacy UBI env can override 2025 OEM partition layout")
-    if "env_save()" in board or "saveenv" in board:
-        raise RuntimeError("Board boot migration must never save environment")
     env = (tree / "defenvs" / (NAME + "_env")).read_text()
     for word in ("mtd erase", "mtd write", "ubi write", "ubi remove",
                  "saveenv", "snand_write"):
