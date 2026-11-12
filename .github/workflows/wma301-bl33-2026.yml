@@ -1,0 +1,90 @@
+name: WMA301 V2 U-Boot 2026.10 BL33 preview
+
+on:
+  push:
+    branches: ["feat/wma301-uboot-2026.10"]
+    paths:
+      - "port/uboot-2026.10/**"
+      - ".github/workflows/wma301-bl33-2026.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wma301-2026-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout WMA301 overlay
+        uses: actions/checkout@v4
+      - name: Checkout pinned 2026.10 U-Boot
+        uses: actions/checkout@v4
+        with:
+          repository: Yuzhii0718/uboot-airoha-mediatek
+          ref: 628fe8da3a8084f1f43839abb1a5d0470521a2c7
+          path: upstream
+          persist-credentials: false
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu \
+            build-essential flex bison libssl-dev device-tree-compiler \
+            python3 python3-pyelftools python3-setuptools \
+            bc swig file nodejs npm xz-utils
+      - name: Apply board port and deny all Web flash uploads
+        run: |
+          python3 port/uboot-2026.10/apply.py upstream
+          git -C upstream diff --check
+      - name: Prepare Web UI
+        run: npm ci --prefix upstream/failsafe/embedded --no-audit --no-fund
+      - name: Build experimental BL33
+        env:
+          CROSS_COMPILE: aarch64-linux-gnu-
+        run: |
+          set -euo pipefail
+          make -C upstream mt7981_tplink_wma301v2_experimental_defconfig
+          make -C upstream olddefconfig
+          python3 port/uboot-2026.10/apply.py upstream --verify
+          make -C upstream -j"$(nproc)" all
+      - name: Audit experimental BL33
+        run: |
+          set -euo pipefail
+          mkdir -p output
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          raw = Path("upstream/u-boot.bin").read_bytes()
+          if not 0 < len(raw) < 0x200000:
+              raise SystemExit("BL33 size outside 2 MiB preview limit")
+          Path("output/WMA301_2026_10_EXPERIMENTAL_BL33.bin").write_bytes(raw)
+          record = {
+              "status": "EXPERIMENTAL / NOT FOR FLASH",
+              "type": "BL33 only; not a FIP or preloader",
+              "upstream_commit": "628fe8da3a8084f1f43839abb1a5d0470521a2c7",
+              "size_bytes": len(raw),
+              "sha256": hashlib.sha256(raw).hexdigest(),
+              "web_upload_policy": "RAM boot only; flash upload blocked",
+              "hardware_tested": False
+          }
+          Path("output/build-audit.json").write_text(json.dumps(record, indent=2) + "\n")
+          print(json.dumps(record, indent=2))
+          PY
+          cp upstream/.config output/u-boot.config
+          aarch64-linux-gnu-readelf -h upstream/u-boot > output/elf-header.txt
+          printf '%s\n' \
+            'NOT FOR FLASH: BL33 only, not a FIP. OEM BL31 compatibility unverified.' \
+            'Use only after separately verifying the volatile RAM-load method.' \
+            > output/READ-ME-FIRST.txt
+      - name: Upload inspection artifact only
+        uses: actions/upload-artifact@v4
+        with:
+          name: WMA301_2026_10_PREVIEW_NOT_FOR_FLASH
+          path: output/
+          retention-days: 14
+          if-no-files-found: error
