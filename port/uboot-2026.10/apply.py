@@ -80,9 +80,9 @@ def install(tree):
         "\tenv_relocate();\n"
         "\t/* Always discard any persistent OEM-BL33 write authorization. */\n"
         "\tenv_set(\"wma301_bl33_update_enable\", NULL);\n"
-        "\t/* WMA301_2025_MTD_LAYOUT: ensure old UBI env cannot override layout. */\\n"
-        "\tenv_set(\\\"mtdids\\\", \\\"spi-nand0=spi-nand0\\\");\\n"
-        "\tenv_set(\\\"mtdparts\\\", \\\"spi-nand0:128k(bl2)ro,3712k(fip)ro,256k(reserved)ro,512k(factory_info)ro,512k(art)ro,2048k(config)ro,-(ubi)\\\");\\n"
+        "\t/* WMA301_2025_MTD_LAYOUT: ensure old UBI env cannot override layout. */\n"
+        "\tenv_set(\"mtdids\", \"spi-nand0=spi-nand0\");\n"
+        "\tenv_set(\"mtdparts\", \"spi-nand0:128k(bl2)ro,3712k(fip)ro,256k(reserved)ro,512k(factory_info)ro,512k(art)ro,2048k(config)ro,-(ubi)\");\n"
 
         "\t/* WMA301_SAFE_BOOTCMD_FALLBACK: in-memory recovery for old UBI env. */\n"
         "\tif (!env_get(\"bootcmd\") || !*env_get(\"bootcmd\")) {\n"
