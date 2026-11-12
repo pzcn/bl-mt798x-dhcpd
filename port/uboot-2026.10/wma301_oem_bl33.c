@@ -42,7 +42,7 @@
 #define FIP_TOC_NAME		0xaa640001
 #define FIP_TOC_START		0x88
 #define MAX_BL33_RAW		SZ_2M
-#define MAX_FIP_PART		SZ_2M
+#define MAX_FIP_PART		SZ_4M
 
 /* Work buffers above the load address (failsafe upload buffer is elsewhere) */
 #define BUF_RAW_OFF		0x1000000
@@ -153,10 +153,16 @@ static int read_old_fip(struct mtd_info **retmtd, u8 *buf, u64 *bl31_off,
 		printf("BL33 update: partition '%s' not found\n", FIP_PART_NAME);
 		return -ENODEV;
 	}
-	if (!mtd->parent || mtd->size != MAX_FIP_PART ||
-	    mtd->offset != 0x200000 || mtd->erasesize != SZ_128K ||
+	/*
+	 * The OEM WMA301 FIP starts at physical 0x20000. The temporary
+	 * OpenWrt/older experimental U-Boot partition map exposes a fake
+	 * "fip" at 0x200000; that region is NOT the factory FIP.
+	 * Fail closed rather than erasing the wrong part of the NAND.
+	 */
+	if (!mtd->parent || mtd->size != 0x3a0000 ||
+	    mtd->offset != 0x20000 || mtd->erasesize != SZ_128K ||
 	    mtd->parent->size != SZ_128M) {
-		printf("BL33 update: unexpected '%s' partition\n", FIP_PART_NAME);
+		printf("BL33 update: unsafe MTD map, factory FIP must begin at 0x20000 (not 0x200000)\n");
 		put_mtd_device(mtd);
 		return -EINVAL;
 	}
