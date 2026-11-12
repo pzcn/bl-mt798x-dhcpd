@@ -45,7 +45,14 @@ jobs:
           js = Path("uboot-mtk-20250711/failsafe/embedded/fsdata-wma301/main.js").read_text()
           assert "WMABL33" in js and 'exists("/uboot.html?probe=1")' in js
           assert "factory_info" in js
-          print("WMA301 UI and firmware-only route guards OK")
+          assert 'httpd_register_uri_handler(inst, "/favicon.svg", &favicon_handler, NULL)' in s
+          assert 'failsafe_output_file(response, "favicon.svg", "image/svg+xml")' in s
+          logo = Path("uboot-mtk-20250711/failsafe/embedded/fsdata-wma301/favicon.svg").read_text()
+          page = Path("uboot-mtk-20250711/failsafe/embedded/fsdata-wma301/index.html").read_text()
+          assert '<svg xmlns="http://www.w3.org/2000/svg"' in logo
+          assert '<img src="/favicon.svg"' in page
+          assert 'href="/favicon.svg"' in page
+          print("WMA301 Web routes, favicon MIME and embedded SVG logo OK")
           PY
 
       - name: Build BL33 only
