@@ -31,6 +31,14 @@ static void wma301_repair_2025_env(void)
 	}
 	if (!env_get("loadaddr"))
 		env_set("loadaddr", "0x46000000");
+	if (!env_get("ipaddr"))
+		env_set("ipaddr", "192.168.1.1");
+	if (!env_get("netmask"))
+		env_set("netmask", "255.255.255.0");
+	if (!env_get("serverip"))
+		env_set("serverip", "192.168.1.2");
+	if (!env_get("bootfile"))
+		env_set("bootfile", "wma301-initramfs-recovery.itb");
 	script = env_get("boot_production");
 	if (!script || !*script || strstr(script, "mtkboardboot"))
 		env_set("boot_production",
