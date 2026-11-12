@@ -39,7 +39,7 @@ jobs:
             bc swig file nodejs npm xz-utils
       - name: Test WMABL33 v1 package format offline
         run: python3 -m unittest discover -v -s port/uboot-2026.10 -p 'test_*.py'
-      - name: Apply board port and deny all Web flash uploads
+      - name: Apply WMA301 board compatibility and Web upload protections
         run: |
           python3 port/uboot-2026.10/apply.py upstream
           git -C upstream diff --check
@@ -66,7 +66,7 @@ jobs:
           base = Path("upstream/failsafe/embedded/fsdata-wma301/.min")
           required = {
               "index.html.gz": "WMA301 恢复模式",
-              "main.js.gz": "0x200000",
+              "main.js.gz": "原厂 FIP 起点为 0x20000",
               "style.css.gz": "--bg:",
               "favicon.svg.gz": "#102536",
               "initramfs.html.gz": "initramfs",
@@ -96,6 +96,23 @@ jobs:
             --verify output/WMA301_BL33_UPDATE.bin \
             --audit output/verify-audit.json
           aarch64-linux-gnu-nm upstream/u-boot | grep -E "wma301_oem_bl33_(validate|write)"
+          aarch64-linux-gnu-nm upstream/u-boot | grep -E 'wma301_board_runtime_init'
+          grep -q '^# CONFIG_NET_RANDOM_ETHADDR is not set
+          cp upstream/.config output/u-boot.config
+          aarch64-linux-gnu-readelf -h upstream/u-boot > output/elf-header.txt
+          printf '%s\\n' \
+            'EXPERIMENTAL, NOT FOR FLASH: BL33 compatibility has not been verified.' \
+            'WMABL33 v1 package framing alone DOES NOT establish an OEM BL31-compatible FIP.' \
+            'Toolbox format compliance is not hardware boot or safe-flash certification.' \
+            > output/READ-ME-FIRST.txt
+      - name: Upload inspection artifact only
+        uses: actions/upload-artifact@v4
+        with:
+          name: WMA301_2026_10_WMABL33_V1_EXPERIMENTAL_NOT_FOR_FLASH
+          path: output/
+          retention-days: 14
+          if-no-files-found: error
+ upstream/.config
           cp upstream/.config output/u-boot.config
           aarch64-linux-gnu-readelf -h upstream/u-boot > output/elf-header.txt
           printf '%s\\n' \
