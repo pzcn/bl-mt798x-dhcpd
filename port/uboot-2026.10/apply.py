@@ -78,9 +78,13 @@ def install(tree):
     board_text = patch_once(
         board_text, '#include <linux/libfdt.h>\n',
         '#include "wma301_board_compat.h"\n')
-    board_text = patch_once(
-        board_text, "\tenv_relocate();\n\treturn 0;\n",
-        "\twma301_board_runtime_init();\n")
+    boot_anchor = "\tenv_relocate();\n\treturn 0;\n"
+    if board_text.count(boot_anchor) != 1:
+        raise RuntimeError("MT7981 board_late_init layout changed")
+    board_text = board_text.replace(
+        boot_anchor,
+        "\tenv_relocate();\n\twma301_board_runtime_init();\n\treturn 0;\n",
+        1)
     board.write_text(board_text, encoding="utf-8")
     print("Installed 2025 bootcmd/Mesh/MAC runtime migration (RAM only)")
 
@@ -281,8 +285,8 @@ def verify(tree):
     if "fsdata-wma301/" not in (tree / "failsafe/embedded/Makefile").read_text():
         raise RuntimeError("WMA301 UI embedding rule is missing")
     board = (tree / "board/mediatek/mt7981/mt7981_rfb.c").read_text()
-    if board.count("wma301_board_runtime_init();") != 1:
-        raise RuntimeError("Missing WMA301 board runtime migration call")
+    if "\tenv_relocate();\n\twma301_board_runtime_init();\n\treturn 0;\n" not in board:
+        raise RuntimeError("WMA301 compatibility hook must run BEFORE return in board_late_init")
     compat = (tree / "board/mediatek/common/wma301_board_compat.c").read_text()
     for marker in ('strstr(bootcmd, "mtkboardboot")',
                    'env_set("bootcmd", WMA301_BOOTCMD)',
