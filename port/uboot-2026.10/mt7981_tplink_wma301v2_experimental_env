@@ -1,0 +1,19 @@
+# WMA301 V2 experimental BL33: RAM-only recovery, OEM BL2/BL31 unchanged.
+ipaddr=192.168.1.1
+netmask=255.255.255.0
+serverip=192.168.1.2
+loadaddr=0x46000000
+console=earlycon=uart8250,mmio32,0x11002000 console=ttyS0
+bootargs=console=ttyS0,115200n8
+bootdelay=3
+bootfile=wma301-initramfs-recovery.itb
+btnchk_key=reset,mesh
+failsafe_led_idle=red:status on
+failsafe_led_ready=green:status blink 1000
+failsafe_led_upgrade=red:status blink 200
+failsafe_led_fail=red:status blink 100
+bootcmd=run check_buttons ; run boot_production ; run boot_recovery ; run boot_tftp ; httpd
+check_buttons=btnchk
+boot_production=ubi part ubi && ubi read $loadaddr fit && bootm $loadaddr
+boot_recovery=ubi part ubi && ubi read $loadaddr recovery && bootm $loadaddr
+boot_tftp=tftpboot $loadaddr $bootfile && bootm $loadaddr
