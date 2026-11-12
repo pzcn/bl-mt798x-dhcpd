@@ -640,7 +640,7 @@ void html_handler(enum httpd_uri_handler_status status,
 void misc_register_handlers(struct httpd_instance *inst)
 {
 	httpd_register_uri_handler(inst, "/", &index_handler, NULL);
-	#ifndef CONFIG_MTK_UPGRADE_FW_ONLY
+#ifndef CONFIG_MTK_UPGRADE_FW_ONLY
 	/* Vendor BL2/BL31 are preserved: do not expose BL2/FIP upload pages. */
 	httpd_register_uri_handler(inst, "/bl2.html", &html_handler, NULL);
 #endif
@@ -655,7 +655,7 @@ void misc_register_handlers(struct httpd_instance *inst)
 	httpd_register_uri_handler(inst, "/initramfs.html", &html_handler, NULL);
 	httpd_register_uri_handler(inst, "/main.js", &js_handler, NULL);
 	httpd_register_uri_handler(inst, "/style.css", &style_handler, NULL);
-	#ifndef CONFIG_MTK_UPGRADE_FW_ONLY
+#if !defined(CONFIG_MTK_UPGRADE_FW_ONLY) || defined(CONFIG_MTK_UPGRADE_OEM_FIP_BL33)
 	httpd_register_uri_handler(inst, "/uboot.html", &html_handler, NULL);
 #endif
 	httpd_register_uri_handler(inst, "/version", &version_handler, NULL);

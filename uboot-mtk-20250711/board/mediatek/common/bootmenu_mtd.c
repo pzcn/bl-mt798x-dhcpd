@@ -9,6 +9,14 @@
 #include "bootmenu_common.h"
 #include "autoboot_helper.h"
 #include "mtd_helper.h"
+#ifdef CONFIG_MTK_UPGRADE_OEM_FIP_BL33
+#include "oem_fip_bl33.h"
+#endif
+#ifdef CONFIG_MTK_MAC_FROM_MTD
+#include <env.h>
+#include <net.h>
+#include <linux/mtd/mtd.h>
+#endif
 
 #ifdef CONFIG_MTK_UPGRADE_FW_ONLY
 static const struct data_part_entry mtd_parts[] = {
@@ -20,6 +28,16 @@ static const struct data_part_entry mtd_parts[] = {
 		.validate = generic_mtd_validate_fw,
 		.write = generic_mtd_write_fw,
 	},
+#ifdef CONFIG_MTK_UPGRADE_OEM_FIP_BL33
+	{
+		.name = "U-Boot (BL33 in vendor FIP)",
+		.abbr = "fip",
+		.env_name = "bootfile.bl33",
+		.post_action = UPGRADE_ACTION_REBOOT,
+		.validate = oem_fip_bl33_validate,
+		.write = oem_fip_bl33_write,
+	},
+#endif
 };
 #else
 static const struct data_part_entry mtd_parts[] = {
@@ -127,6 +145,12 @@ static const struct bootmenu_entry mtd_bootmenu_entries[] = {
 		.desc = "Upgrade firmware",
 		.cmd = "mtkupgrade fw"
 	},
+#ifdef CONFIG_MTK_UPGRADE_OEM_FIP_BL33
+	{
+		.desc = "Upgrade U-Boot (BL33 only, vendor BL31 kept)",
+		.cmd = "mtkupgrade fip"
+	},
+#endif
 	{
 		.desc = "Load image",
 		.cmd = "mtkload"
@@ -233,7 +257,49 @@ void default_boot_set_defaults(void *fdt)
 	mtd_boot_set_defaults(fdt);
 }
 
+#ifdef CONFIG_MTK_MAC_FROM_MTD
+static void mtk_mac_from_mtd(void)
+{
+	const char *part = CONFIG_MTK_MAC_MTD_PART;
+	const char *cur = env_get("ethaddr");
+	struct mtd_info *mtd;
+	u8 mac[ARP_HLEN], old[ARP_HLEN];
+	size_t retlen = 0;
+	int ret;
+
+	if (env_get_yesno("mac_from_mtd") == 0)
+		return;
+
+	gen_mtd_probe_devices();
+	mtd = get_mtd_device_nm(part);
+	if (IS_ERR_OR_NULL(mtd)) {
+		printf("MAC: partition '%s' not found\n", part);
+		return;
+	}
+	ret = mtd_read(mtd, CONFIG_MTK_MAC_MTD_OFFSET, ARP_HLEN, &retlen, mac);
+	put_mtd_device(mtd);
+	if ((ret && !mtd_is_bitflip(ret)) || retlen != ARP_HLEN) {
+		printf("MAC: failed to read %s+0x%x (%d)\n", part,
+		       CONFIG_MTK_MAC_MTD_OFFSET, ret);
+		return;
+	}
+	if (!is_valid_ethaddr(mac)) {
+		printf("MAC: invalid address %pM in %s+0x%x\n", mac, part,
+		       CONFIG_MTK_MAC_MTD_OFFSET);
+		return;
+	}
+	if (cur && eth_env_get_enetaddr("ethaddr", old) &&
+	    !memcmp(old, mac, ARP_HLEN))
+		return;
+	eth_env_set_enetaddr("ethaddr", mac);
+	printf("MAC: %pM (from %s+0x%x)\n", mac, part, CONFIG_MTK_MAC_MTD_OFFSET);
+}
+#endif
+
 int board_late_init(void)
 {
+#ifdef CONFIG_MTK_MAC_FROM_MTD
+	mtk_mac_from_mtd();
+#endif
 	return 0;
 }

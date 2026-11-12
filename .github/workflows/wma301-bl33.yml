@@ -1,7 +1,7 @@
 name: WMA301 V2 BL33 (OEM BL2/BL31 kept)
 on:
   push:
-    branches: ["wma301"]
+    branches: ["wma301", "feat/wma301-v4-clean"]
   workflow_dispatch:
 
 permissions:
@@ -31,25 +31,21 @@ jobs:
       - name: Prepare output
         run: mkdir -p output
 
-      - name: Validate protected Web routes and navigation
+      - name: Validate WMA301 Web UI and guard OEM BL2/FIP endpoints
         run: |
+          node --check "$UB/failsafe/embedded/fsdata-wma301/main.js"
           node --check "$UB/failsafe/embedded/fsdata-bootstrap/main.js"
           python3 - <<'PY'
-          import re
           from pathlib import Path
-          c = Path("uboot-mtk-20250711/failsafe/modules/misc.c").read_text()
-          js = Path("uboot-mtk-20250711/failsafe/embedded/fsdata-bootstrap/main.js").read_text()
-          for url, nav in (("/bl2.html", "bl2"), ("/uboot.html", "uboot")):
-              pattern = (
-                  r"#ifndef\s+CONFIG_MTK_UPGRADE_FW_ONLY"
-                  r"(?:(?!#endif)[\s\S])*?"
-                  r'httpd_register_uri_handler\(inst,\s*"' + re.escape(url) +
-                  r'"[^;]*;[\s\S]*?#endif'
-              )
-              assert re.search(pattern, c), f"Missing firmware-only guard: {url}"
-              assert re.search(r"\b" + nav + r"\s*:\s*\{\s*url:\s*['\"]" +
-                               re.escape(url), js), f"Missing navigation probe: {url}"
-          print("Web route guards and navigation probes passed")
+          s = Path("uboot-mtk-20250711/failsafe/modules/misc.c").read_text()
+          a = s.index('httpd_register_uri_handler(inst, "/bl2.html"')
+          b = s.index('httpd_register_uri_handler(inst, "/uboot.html"')
+          assert '#ifndef CONFIG_MTK_UPGRADE_FW_ONLY' in s[max(0, a-200):a]
+          assert '#if !defined(CONFIG_MTK_UPGRADE_FW_ONLY) || defined(CONFIG_MTK_UPGRADE_OEM_FIP_BL33)' in s[max(0, b-200):b]
+          js = Path("uboot-mtk-20250711/failsafe/embedded/fsdata-wma301/main.js").read_text()
+          assert "WMABL33" in js and 'exists("/uboot.html?probe=1")' in js
+          assert "factory_info" in js
+          print("WMA301 UI and firmware-only route guards OK")
           PY
 
       - name: Build BL33 only
@@ -77,11 +73,17 @@ jobs:
           need 'CONFIG_WEBUI_FAILSAFE_ENV=y'
           need 'CONFIG_WEBUI_FAILSAFE_UBI=y'
           need 'CONFIG_MTK_UPGRADE_FW_ONLY=y'
+          need 'CONFIG_MTK_UPGRADE_OEM_FIP_BL33=y'
+          need 'CONFIG_MTK_UPGRADE_OEM_FIP_BL33_BOARD="tplink,wma301-v2"'
+          need 'CONFIG_MTK_MAC_FROM_MTD=y'
+          need 'CONFIG_MTK_MAC_MTD_PART="factory_info"'
+          need 'CONFIG_MTK_MAC_MTD_OFFSET=0x1c'
+          need 'CONFIG_WEBUI_FAILSAFE_UI_WMA301=y'
           need 'CONFIG_GLBTN_DEFAULT_KEYS="reset,mesh"'
           if grep -Eq '^CONFIG_(ENV_IS_IN_MTD|ENV_IS_NOWHERE|ENABLE_NAND_NMBM|MTK_DUAL_BOOT|MEDIATEK_MULTI_MTD_LAYOUT|WEBUI_FAILSAFE_FLASH|WEBUI_FAILSAFE_FACTORY|WEBUI_FAILSAFE_SIMG|WEBUI_FAILSAFE_NAND_RAW)=y$' "$CFG"; then
             echo "Unsafe configuration" >&2; exit 1
           fi
-          make -C "$UB" -j"$(nproc)" all
+          make -C "$UB" -j2 all
           test -s "$UB/u-boot.bin"
           cp "$UB/u-boot.bin" output/WMA301_CUSTOM_BL33.bin
           cp "$CFG" output/u-boot.config
@@ -108,7 +110,25 @@ jobs:
           Path("output/size-audit.json").write_text(json.dumps(rep, indent=2) + "\n")
           print(json.dumps(rep, indent=2))
           PY
-          (cd output && sha256sum WMA301_CUSTOM_BL33.* > SHA256SUMS.txt)
+          python3 - <<'PY'
+          import hashlib, lzma, struct
+          from pathlib import Path
+          raw=Path("output/WMA301_CUSTOM_BL33.bin").read_bytes()
+          xz=Path("output/WMA301_CUSTOM_BL33.xz").read_bytes()
+          header=struct.pack("<8sII32sII32s32sII",
+              b"WMABL33\x00",1,128,b"tplink,wma301-v2\x00".ljust(32,b"\x00"),
+              len(xz),len(raw),hashlib.sha256(xz).digest(),
+              hashlib.sha256(raw).digest(),0x41e00000,0)
+          assert len(header)==128
+          pkg=header+xz
+          assert pkg[:8]==b"WMABL33\x00"
+          assert lzma.decompress(pkg[128:])==raw
+          Path("output/DO_NOT_FLASH_WMA301_BL33_UPDATE_EXPERIMENTAL.bin").write_bytes(pkg)
+          Path("output/README_DO_NOT_FLASH.txt").write_text(
+              "WMA301 V4 experimental images. DO NOT FLASH or write FIP.\n"
+              "OEM BL2/BL31 loading and power-failure recovery are untested.\n")
+          PY
+          (cd output && sha256sum *.bin *.xz > SHA256SUMS.txt)
 
       - uses: actions/upload-artifact@v4
         with:
