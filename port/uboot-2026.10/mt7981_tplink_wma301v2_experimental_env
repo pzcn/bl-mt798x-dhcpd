@@ -7,14 +7,21 @@ console=earlycon=uart8250,mmio32,0x11002000 console=ttyS0
 bootargs=console=ttyS0,115200n8
 bootdelay=3
 bootfile=wma301-initramfs-recovery.itb
-btnchk_key=reset,mesh
+btnchk_key=mesh
 failsafe_led_idle=red:status on
 failsafe_led_ready=green:status blink 1000
 failsafe_led_upgrade=red:status blink 200
 failsafe_led_fail=red:status blink 100
 bootcmd=run check_buttons ; run boot_production ; run boot_recovery ; httpd
-check_buttons=btnchk
+check_buttons=if button mesh; then bootmenu 30; else btnchk; fi
 boot_production=ubi part ubi && ubi read $loadaddr fit && bootm $loadaddr
 boot_recovery=ubi part ubi && ubi read $loadaddr recovery && bootm $loadaddr
 # TFTP RAM boot remains available manually; avoid delaying automatic Web fallback.
 boot_tftp=tftpboot $loadaddr $bootfile && bootm $loadaddr
+bootmenu_default=0
+bootmenu_delay=30
+bootmenu_0=Boot installed FIT from UBI=run boot_production
+bootmenu_1=Boot recovery FIT from UBI=run boot_recovery
+bootmenu_2=TFTP RAM boot (no flash write)=run boot_tftp
+bootmenu_3=Start Web failsafe=httpd
+bootmenu_4=Reboot=reset
