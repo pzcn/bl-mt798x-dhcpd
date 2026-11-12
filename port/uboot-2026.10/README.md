@@ -17,8 +17,25 @@ The old 2025.07 code remains untouched on the original `wma301` branch.
   during validation, and all persistent Web writes are rejected at the
   actual `failsafe_write_image()` hook. Flash management, UBI management,
   Telnet, environment editor and Web console are disabled.
-- Independent GitHub Actions compilation, size check, ELF header inspection
-  and a build audit. No FIP, no Release, no automatic flashing.
+- Independent GitHub Actions compilation, WMABL33 v1 package encoding,
+  strict decode/round-trip validation, size/link-address checks, ELF header
+  inspection and build audit. No FIP, no Release, no automatic flashing.
+
+## Unified Toolbox / V4 Web format (PR #4)
+
+The output is named `WMA301_BL33_UPDATE.bin`: exactly 128 bytes of
+`WMABL33\\0` v1 header followed by an XZ/CRC32-compressed BL33. The header
+contains the `tplink,wma301-v2` board ID, both sizes, SHA-256 hashes for
+compressed and raw BL33, `0x41e00000` load address and zero reserved field.
+The encoder and validator live in `package_bl33.py`. The format is identical
+in structure to the Toolbox parser merged in
+[pzcn/wma301-openwrt PR #4](https://github.com/pzcn/wma301-openwrt/pull/4).
+
+**This is an experimental package despite using the production file format.**
+It must not be used in the Toolbox to flash a device, or via V4 Web recovery,
+until OEM BL31 compatibility, network and button recovery are verified on
+actual WMA301 V2 hardware. A passing package checksum does not make the
+unvalidated BL33 flash-safe.
 
 ## Important caveats
 
