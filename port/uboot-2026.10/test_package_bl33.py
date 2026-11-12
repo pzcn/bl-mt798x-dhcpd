@@ -18,6 +18,12 @@ def make_raw():
 
 
 class WMABL33Tests(unittest.TestCase):
+    def test_oem_fip_window_matches_2025(self):
+        self.assertEqual(P.FIP_XZ_START, 0x23848)
+        self.assertEqual(P.FIP_END, 0x80000)
+        self.assertEqual(P.FIP_END - 0x20000, 3 * 0x20000)
+        self.assertEqual(P.HEADER_SIZE, 128)
+
     def test_roundtrip_and_header(self):
         raw = make_raw()
         package = P.encode(raw)
