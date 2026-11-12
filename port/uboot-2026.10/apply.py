@@ -41,6 +41,38 @@ def install(tree):
     assert s.count(MARKER) == 2
     print("Installed two Web upload flash guards")
 
+    # The previous 2025.07 build may have saved an incomplete environment
+    # to ubootenv/ubootenv2. UBI import reports success even without bootcmd.
+    # Do NOT erase or overwrite these volumes: restore only missing runtime
+    # boot variables and never call env_save() here.
+    board = tree / "board/mediatek/mt7981/mt7981_rfb.c"
+    board_text = board.read_text(encoding="utf-8")
+    board_anchor = "\tenv_relocate();\n\treturn 0;\n"
+    repair = (
+        "\tenv_relocate();\n"
+        "\t/* WMA301_SAFE_BOOTCMD_FALLBACK: in-memory recovery for old UBI env. */\n"
+        "\tif (!env_get(\"bootcmd\") || !*env_get(\"bootcmd\")) {\n"
+        "\t\tputs(\"WMA301: no bootcmd in UBI env; enabling RAM-only boot fallback\\n\");\n"
+        "\t\tif (!env_get(\"loadaddr\"))\n"
+        "\t\t\tenv_set(\"loadaddr\", \"0x46000000\");\n"
+        "\t\tif (!env_get(\"btnchk_key\"))\n"
+        "\t\t\tenv_set(\"btnchk_key\", \"reset,mesh\");\n"
+        "\t\tif (!env_get(\"check_buttons\"))\n"
+        "\t\t\tenv_set(\"check_buttons\", \"btnchk\");\n"
+        "\t\tif (!env_get(\"boot_production\"))\n"
+        "\t\t\tenv_set(\"boot_production\", \"ubi part ubi && ubi read $loadaddr fit && bootm $loadaddr\");\n"
+        "\t\tif (!env_get(\"boot_recovery\"))\n"
+        "\t\t\tenv_set(\"boot_recovery\", \"ubi part ubi && ubi read $loadaddr recovery && bootm $loadaddr\");\n"
+        "\t\tenv_set(\"bootcmd\",\n"
+        "\t\t\t\"run check_buttons ; run boot_production ; run boot_recovery ; httpd\");\n"
+        "\t}\n"
+        "\treturn 0;\n"
+    )
+    if board_text.count(board_anchor) != 1:
+        raise RuntimeError("MT7981 board_late_init signature changed")
+    board.write_text(board_text.replace(board_anchor, repair, 1), encoding="utf-8")
+    print("Installed WMA301 bootcmd fallback (RAM only, no flash writes)")
+
 def verify(tree):
     c = (tree / ".config").read_text()
     required = [
@@ -75,6 +107,11 @@ def verify(tree):
     s = (tree / "board/mediatek/common/failsafe.c").read_text()
     if s.count(MARKER) != 2:
         raise RuntimeError("Missing Web flash guards")
+    board = (tree / "board/mediatek/mt7981/mt7981_rfb.c").read_text()
+    if board.count("WMA301_SAFE_BOOTCMD_FALLBACK") != 1:
+        raise RuntimeError("Missing RAM-only missing-bootcmd migration")
+    if "env_save()" in board or "saveenv" in board:
+        raise RuntimeError("Board boot migration must never save environment")
     env = (tree / "defenvs" / (NAME + "_env")).read_text()
     for word in ("mtd erase", "mtd write", "ubi write", "ubi remove",
                  "saveenv", "snand_write"):
