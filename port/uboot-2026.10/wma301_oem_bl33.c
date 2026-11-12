@@ -87,6 +87,7 @@ static int check_pkg(const void *data, size_t size, const struct pkg_hdr **ret)
 {
 	const struct pkg_hdr *h = data;
 	static const u8 xz_head[8] = { 0xfd, '7', 'z', 'X', 'Z', 0x00, 0x00, 0x01 };
+	static const char board_id[32] = WMA301_OEM_BL33_BOARD;
 	u8 sum[SHA256_SUM_LEN];
 	const u8 *xz;
 	u8 *raw = work_buf(BUF_RAW_OFF);
@@ -100,12 +101,13 @@ static int check_pkg(const void *data, size_t size, const struct pkg_hdr **ret)
 		printf("BL33 update: unsupported package version\n");
 		return -EINVAL;
 	}
-	if (strncmp(h->board, WMA301_OEM_BL33_BOARD, sizeof(h->board))) {
+	if (memcmp(h->board, board_id, sizeof(h->board))) {
 		printf("BL33 update: package is for '%.32s', this board is '%s'\n",
 		       h->board, WMA301_OEM_BL33_BOARD);
 		return -EINVAL;
 	}
-	if ((u64)h->xz_size + PKG_HDR_SIZE != size || !h->xz_size || !h->raw_size ||
+	if ((u64)h->xz_size + PKG_HDR_SIZE != size ||
+	    h->xz_size < sizeof(xz_head) || h->raw_size < 16 ||
 	    h->raw_size > MAX_BL33_RAW || h->link_addr != (u32)CONFIG_TEXT_BASE) {
 		printf("BL33 update: bad sizes or link address\n");
 		return -EINVAL;
@@ -191,6 +193,7 @@ static int read_old_fip(struct mtd_info **retmtd, u8 *buf, u64 *bl31_off,
 		end = max(end, e->offset + e->size);
 	}
 	if (n31 != 1 || n33 != 1 || *bl31_off != FIP_TOC_START ||
+	    !*bl31_size ||
 	    memcmp(((const struct toc_entry_raw *)(buf + 16))[0].uuid,
 		   uuid_bl31, 16) ||
 	    memcmp(((const struct toc_entry_raw *)(buf + 16))[1].uuid,
