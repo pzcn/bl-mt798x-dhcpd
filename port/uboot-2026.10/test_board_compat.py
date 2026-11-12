@@ -20,6 +20,10 @@ class LegacyBootTests(unittest.TestCase):
     def test_saved_mtkboardboot_migrates_without_flash(self):
         self.assertIn('strstr(bootcmd, "mtkboardboot")', BOARD)
         self.assertIn('env_set("bootcmd", WMA301_BOOTCMD)', BOARD)
+        self.assertIn('strstr(bootcmd, "run check_buttons")', BOARD)
+        self.assertIn('#define WMA301_BOOTCMD "run boot_production ; run boot_recovery ; httpd"', BOARD)
+        self.assertIn('bootcmd=run boot_production ; run boot_recovery ; httpd', ENV)
+        self.assertNotIn('bootcmd=run check_buttons', ENV)
         self.assertIn('wma301_board_runtime_init();', APPLY)
         self.assertNotIn('env_save(', BOARD)
         self.assertNotIn('saveenv', BOARD)

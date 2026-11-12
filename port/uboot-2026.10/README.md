@@ -43,8 +43,13 @@ No partition table is flashed as part of BL33 migration.
   generation is disabled. If the factory MAC is invalid, no bogus MAC
   is installed.
 - **Headless Web recovery (Reset or Mesh):** hold either physical
-  button while powering on, and keep holding through the U-Boot
-  check for approximately **four seconds**. `btnchk_key=reset,mesh`
+  button **starting before power-on** and keep holding until the recovery
+  LED/Web server is active (allow roughly **6–9 seconds** from power-on,
+  depending on BL2/DDR init and network bring-up; do not release at only
+  4 seconds). Upstream 2026.10 `common/main.c` already runs `btnchk`
+  **before** `bootdelay_process()`; adding `preboot=run check_buttons`
+  would duplicate detection. We removed the second button check from
+  `bootcmd` instead. `btnchk_key=reset,mesh`
   and `check_buttons=btnchk` are set both in the default env and
   in `board_late_init` after any stored 2025 environment is imported.
   Upstream 2026.10 excludes Reset only from its *default* key list:
@@ -57,12 +62,32 @@ No partition table is flashed as part of BL33 migration.
   Web failsafe and reboot. Neither physical button starts a menu
   automatically. No raw NAND-writing menu actions are present.
 - **Reset early handling:** the upstream board can select defaults
-  instead of persisted variables when Reset is detected. The new
-  default `btnchk_key` includes both physical buttons. Holding
-  Reset is not a remedy for corrupt BL2/FIP.
+  instead of persisted variables when Reset is detected. Its serial
+  message about "resetting environment" means **RAM-only defaults for
+  this boot**, not erasing the stored `ubootenv` volumes. The default
+  `btnchk_key` includes both physical buttons. Holding Reset is not
+  a remedy for corrupt BL2/FIP.
 - **LED polarity:** on measured V2.0 hardware, GPIO14 red and GPIO15
   green are both **active HIGH**. GPIO0 Mesh and GPIO1 Reset remain
   active LOW.
+
+## Read-only Web backups
+
+The standalone `/backup/info` (GET) and `/backup/main` (POST)
+endpoints preserve the V4/Toolbox protocol. Only these named, OEM-map
+matched partitions may be downloaded: `bl2`, `fip`,
+`factory_info`, `art`, `config`. The handler streams
+`mtd_read` responses in 16 KiB chunks with the correct
+`Content-Length`, without loading the entire FIP in U-Boot RAM.
+It exposes no full-chip or arbitrary range backups and performs no
+writes or erases. The generic `WEBUI_FAILSAFE_FLASH` module stays off.
+`/sysinfo` also reports `mac` (the validated runtime `ethaddr`),
+so the V4 interface can display it while `/env/list` is disabled.
+
+A backup can include private device identifiers and sensitive settings:
+disconnect WAN and keep backup files private. HTTP recovery has no
+account login. A NAND with ECC/read errors may cause a backup to abort;
+the client must verify `Content-Length` and repeat critical reads.
 
 ## Firmware Web upgrade is intentionally disabled
 
@@ -135,5 +160,6 @@ make -C upstream -j"$(nproc)" CROSS_COMPILE=aarch64-linux-gnu- all
 ```
 
 Still required on actual hardware: legacy saved-env boot, factory MAC,
-LED polarity, Reset and Mesh four-second Web entry without TTL, manual
-serial menu, FIT volume naming and safe FIP/UBI recovery.
+LED polarity, Reset and Mesh recovery without TTL, download streaming
+and backup hashes, manual serial menu, FIT volume naming and safe
+FIP/UBI recovery.

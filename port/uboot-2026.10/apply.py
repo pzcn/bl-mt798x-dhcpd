@@ -93,7 +93,7 @@ def install(tree):
     # the legacy WMABL33-only repacker as a WMA301-specific module.
     common = tree / "board/mediatek/common"
     for name in ("wma301_oem_bl33.c", "wma301_oem_bl33.h",
-                 "wma301_board_compat.c"):
+                 "wma301_board_compat.c", "wma301_backup.c"):
         (common / name).write_bytes((HERE / name).read_bytes())
     makefile = common / "Makefile"
     mk = makefile.read_text()
@@ -103,6 +103,7 @@ def install(tree):
         # depend on which cosmetic Web failsafe UI was selected. The FIP
         # writer is used by failsafe.c whenever MTK_WEB_FAILSAFE is enabled.
         "obj-$(CONFIG_MTK_WEB_FAILSAFE) += wma301_oem_bl33.o\n"
+        "obj-$(CONFIG_MTK_WEB_FAILSAFE) += wma301_backup.o\n"
         "obj-y += wma301_board_compat.o\n")
     makefile.write_text(mk)
 
@@ -143,6 +144,13 @@ def install(tree):
     # styles. Register only this static SVG; do not expose theme writes.
     core_file = tree / "failsafe/core.c"
     core = core_file.read_text()
+    core = patch_once(
+        core, '#include <failsafe/internal.h>\n',
+        '\n/* WMA301 V4 backup API; never enable generic flash-write module. */\n'
+        'void wma301_backup_register_handlers(struct httpd_instance *inst);\n')
+    core = patch_once(
+        core, '\tfailsafe_register_pages(inst);\n',
+        '\twma301_backup_register_handlers(inst);\n')
     core = patch_before(core,
         "/*\n * A registered JS URI is the name of the embedded asset",
         '#if IS_ENABLED(CONFIG_WEBUI_FAILSAFE_UI_WMA301)\n'
@@ -163,6 +171,24 @@ def install(tree):
         '\t\t\t\t   &wma301_favicon_handler, NULL);\n'
         '#endif\n')
     core_file.write_text(core)
+
+    # Read-only MAC in /sysinfo: the environment editor is disabled, so
+    # the SPA and Toolbox cannot fetch ethaddr from /env/list.
+    sysfile = tree / "failsafe/modules/sysinfo.c"
+    sys = sysfile.read_text()
+    sys = patch_once(sys, '#include <env.h>\n', '#include <net.h>\n')
+    sys = patch_once(sys,
+        "\tlen = sysinfo_json_append_board(buf, len, left);\n",
+        '#if defined(CONFIG_TARGET_MT7981)\n'
+        '\t{\n'
+        '\t\tu8 mac[6];\n'
+        '\t\tif (eth_env_get_enetaddr("ethaddr", mac) &&\n'
+        '\t\t    is_valid_ethaddr(mac))\n'
+        '\t\t\tlen = buf_appendf(buf, left, len,\n'
+        '\t\t\t\t",\\"mac\\":\\"%pM\\"", mac);\n'
+        '\t}\n'
+        '#endif\n')
+    sysfile.write_text(sys)
 
     # Rebooting "to failsafe" writes the boot environment in the new
     # upstream even when all advanced Web features are off. Disable it.
@@ -265,6 +291,21 @@ def verify(tree):
             "gpios = <&pio 0 GPIO_ACTIVE_LOW>;" not in dts or
             "gpios = <&pio 1 GPIO_ACTIVE_LOW>;" not in dts):
         raise RuntimeError("WMA301 V2 LED/button GPIO polarity mismatch")
+    backup = (tree / "board/mediatek/common/wma301_backup.c").read_text()
+    for marker in ('/backup/info', '/backup/main',
+                   'wma301_backup_open(part)', 'mtd_read(session->mtd',
+                   'HTTP_CB_RESPONDING', 'Content-Length:', 'HTTP_RESP_CUSTOM'):
+        if marker not in backup:
+            raise RuntimeError("WMA301 read-only backup missing: " + marker)
+    for destructive in ('mtd_write(', 'mtd_erase(', 'flash_open_target('):
+        if destructive in backup:
+            raise RuntimeError("WMA301 backup must never write/erase Flash")
+    core = (tree / "failsafe/core.c").read_text()
+    if "wma301_backup_register_handlers(inst);" not in core:
+        raise RuntimeError("Read-only backup API routes not registered")
+    sys = (tree / "failsafe/modules/sysinfo.c").read_text()
+    if '",\\\"mac\\\":\\\"%pM\\\""' not in sys and 'mac' not in sys:
+        raise RuntimeError("sysinfo MAC field missing")
     if "favicon.svg" not in (tree / "failsafe/core.c").read_text():
         raise RuntimeError("V4 favicon route is missing")
     if (tree / "failsafe/modules/upgrade.c").read_text().count(
@@ -310,6 +351,8 @@ def verify(tree):
     mk = (tree / "board/mediatek/common/Makefile").read_text()
     if "obj-y += wma301_board_compat.o" not in mk:
         raise RuntimeError("Board compatibility object must link independent of Web UI")
+    if "obj-$(CONFIG_MTK_WEB_FAILSAFE) += wma301_backup.o" not in mk:
+        raise RuntimeError("WMA301 read-only backup module not linked")
     if "obj-$(CONFIG_MTK_WEB_FAILSAFE) += wma301_oem_bl33.o" not in mk:
         raise RuntimeError("OEM BL33 writer must link whenever failsafe.c is built")
     env_default = (tree / "defenvs" / (NAME + "_env")).read_text()
@@ -320,7 +363,12 @@ def verify(tree):
             '#define WMA301_CHECK_BUTTONS "btnchk"' not in compat):
         raise RuntimeError("Runtime override breaks headless button Web recovery")
 
+    if ('#define WMA301_BOOTCMD "run boot_production ; run boot_recovery ; httpd"' not in compat or
+            'strstr(bootcmd, "run check_buttons")' not in compat):
+        raise RuntimeError("Duplicate post-countdown button check not removed")
     env = (tree / "defenvs" / (NAME + "_env")).read_text()
+    if "bootcmd=run check_buttons" in env:
+        raise RuntimeError("Old post-bootdelay btnchk would run twice")
     for word in ("mtd erase", "mtd write", "ubi write", "ubi remove",
                  "saveenv", "snand_write"):
         if word in env:

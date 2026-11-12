@@ -1,6 +1,6 @@
 /*
  * WMA301 recovery Web UI (single page) for the U-Boot failsafe httpd of
- * Yuzhii0718/uboot-airoha-mediatek (2026.10). Only uses the read-only/RAM APIs:
+ * Yuzhii0718/uboot-airoha-mediatek (2026.10). Read-only backup and RAM APIs:
  *   /version /sysinfo /upload /result /last-error /reboot /reboot-failsafe /boot
  *   /backup/info /backup/main /env/list /env/set /env/unset
  *   /console/exec /console/poll /console/clear /ubi/info /ubi/volumes /ubi/remove
@@ -249,7 +249,7 @@ const VIEWS = {};
 
 VIEWS.firmware = () => {
 	const sys = S.sys || {};
-	const mac = S.env && S.env.ethaddr ? S.env.ethaddr.toUpperCase() : "—";
+	const mac = (S.sys && S.sys.mac) || (S.env && S.env.ethaddr) || "—";
 	view(`<div class="grid">
 		<div class="stat"><div class="k">设备</div><div class="v">${esc((sys.board && sys.board.model) || "WMA301 V2")}</div></div>
 		<div class="stat"><div class="k">U-Boot</div><div class="v">${esc((S.ver.match(/U-Boot \S+/) || ["2026.10"])[0])}</div></div>
@@ -306,12 +306,12 @@ VIEWS.uboot = () => {
 };
 
 VIEWS.backup = async () => {
-	view(`<div class="card"><h2>备份</h2><p class="sub">逐个下载分区。<b>art</b> 是无线校准数据、<b>factory_info</b> 含 MAC 等出厂信息，每台设备唯一，建议都保存一份。</p>
+	view(`<div class="card"><h2>备份</h2><p class="sub">只读备份 bl2、fip、factory_info、art、config。<b>art</b> 包含无线校准数据；出厂信息及 config 可能包含设备标识或敏感配置。请断开 WAN、使用直连 LAN 备份并妥善保存。</p>
 		<div id="bk_list">正在读取分区表…</div></div>`);
 	try {
 		const info = await get("/backup/info", true);
 		const parts = (info.mtd && info.mtd.parts) || [];
-		const mac = S.env && S.env.ethaddr ? S.env.ethaddr.replace(/:/g, "") : "wma301";
+		const mac = ((S.sys && S.sys.mac) || (S.env && S.env.ethaddr) || "wma301").replace(/:/g, "").toUpperCase();
 		$("bk_list").innerHTML = `<table><thead><tr><th>分区</th><th class="r">大小</th><th></th></tr></thead><tbody>` +
 			parts.map((p, i) => `<tr><td>${esc(p.master ? p.name + "（整片）" : p.name)}
 				${p.name === "art" || p.name === "factory_info" ? '<span class="chip warn">重要</span>' : ""}</td>

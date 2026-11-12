@@ -97,6 +97,8 @@ jobs:
             --audit output/verify-audit.json
           aarch64-linux-gnu-nm upstream/u-boot | grep -E "wma301_oem_bl33_(validate|write)"
           aarch64-linux-gnu-nm upstream/u-boot | grep -F "wma301_board_runtime_init"
+          aarch64-linux-gnu-nm upstream/u-boot | grep -F "wma301_backup_register_handlers"
+          grep -Fq '# CONFIG_WEBUI_FAILSAFE_FLASH is not set' upstream/.config
           grep -Fq '# CONFIG_NET_RANDOM_ETHADDR is not set' upstream/.config
           cp upstream/.config output/u-boot.config
           aarch64-linux-gnu-readelf -h upstream/u-boot > output/elf-header.txt

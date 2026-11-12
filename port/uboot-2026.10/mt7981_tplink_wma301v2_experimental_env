@@ -12,7 +12,8 @@ failsafe_led_idle=red:status on
 failsafe_led_ready=green:status blink 1000
 failsafe_led_upgrade=red:status blink 200
 failsafe_led_fail=red:status blink 100
-bootcmd=run check_buttons ; run boot_production ; run boot_recovery ; httpd
+bootcmd=run boot_production ; run boot_recovery ; httpd
+# The upstream main_loop invokes btnchk before bootdelay; do not rerun it.
 check_buttons=btnchk
 boot_production=ubi part ubi && ubi read $loadaddr fit && bootm $loadaddr
 boot_recovery=ubi part ubi && ubi read $loadaddr recovery && bootm $loadaddr

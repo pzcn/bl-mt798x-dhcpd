@@ -14,7 +14,7 @@
 
 #define WMA301_MTDIDS "spi-nand0=spi-nand0"
 #define WMA301_MTDPARTS "spi-nand0:128k(bl2)ro,3712k(fip)ro,256k(reserved)ro,512k(factory_info)ro,512k(art)ro,2048k(config)ro,-(ubi)"
-#define WMA301_BOOTCMD "run check_buttons ; run boot_production ; run boot_recovery ; httpd"
+#define WMA301_BOOTCMD "run boot_production ; run boot_recovery ; httpd"
 #define WMA301_CHECK_BUTTONS "btnchk"
 
 static void wma301_repair_2025_env(void)
@@ -25,7 +25,8 @@ static void wma301_repair_2025_env(void)
 	unsigned int i;
 
 	/* 2025 saved bootcmd=mtkboardboot is not a command in 2026.10. */
-	if (!bootcmd || !*bootcmd || strstr(bootcmd, "mtkboardboot")) {
+	if (!bootcmd || !*bootcmd || strstr(bootcmd, "mtkboardboot") ||
+	    strstr(bootcmd, "run check_buttons")) {
 		puts("WMA301: replacing legacy mtkboardboot in RAM\n");
 		env_set("bootcmd", WMA301_BOOTCMD);
 	}
@@ -53,7 +54,9 @@ static void wma301_repair_2025_env(void)
 			"tftpboot $loadaddr $bootfile && bootm $loadaddr");
 
 	/*
-	 * The 2026.10 btnchk excludes Reset only from its default list;
+	 * Upstream common/main.c already executes btnchk BEFORE the
+	 * bootdelay_process() countdown. Do not duplicate it in bootcmd or
+	 * preboot. The 2026.10 btnchk excludes Reset only from its default list;
 	 * explicitly configured "reset,mesh" checks both labels.
 	 * Holding either for four seconds starts HTTP failsafe, even with
 	 * no serial cable. Upstream Reset may also select default env.
