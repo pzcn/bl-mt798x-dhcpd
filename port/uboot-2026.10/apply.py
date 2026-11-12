@@ -196,6 +196,16 @@ def install(tree):
     print("Registered V4 UI and blocked persistent reboot endpoint")
 
 def verify(tree):
+    dts = (tree / "arch/arm/dts" / (NAME + ".dts")).read_text()
+    layout = {
+        'label = "bl2"; reg = <0x0 0x20000>;': "128K BL2",
+        'label = "fip"; reg = <0x20000 0x3a0000>;': "OEM FIP at 0x20000",
+        'label = "reserved"; reg = <0x3c0000 0x40000>;': "factory reserved",
+        'label = "ubi"; reg = <0x700000 0x7900000>;': "post-7MiB UBI",
+    }
+    for marker, desc in layout.items():
+        if marker not in dts:
+            raise RuntimeError("Unsafe WMA301 MTD mapping: " + desc)
     c = (tree / ".config").read_text()
     required = [
         'CONFIG_TEXT_BASE=0x41e00000',
