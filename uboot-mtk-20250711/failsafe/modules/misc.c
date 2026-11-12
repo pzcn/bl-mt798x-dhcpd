@@ -655,7 +655,7 @@ void misc_register_handlers(struct httpd_instance *inst)
 	httpd_register_uri_handler(inst, "/initramfs.html", &html_handler, NULL);
 	httpd_register_uri_handler(inst, "/main.js", &js_handler, NULL);
 	httpd_register_uri_handler(inst, "/style.css", &style_handler, NULL);
-	#ifndef CONFIG_MTK_UPGRADE_FW_ONLY
+	#if !defined(CONFIG_MTK_UPGRADE_FW_ONLY) || defined(CONFIG_MTK_UPGRADE_OEM_FIP_BL33)
 	httpd_register_uri_handler(inst, "/uboot.html", &html_handler, NULL);
 #endif
 	httpd_register_uri_handler(inst, "/version", &version_handler, NULL);

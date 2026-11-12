@@ -39,6 +39,7 @@ obj-$(CONFIG_MTK_UPGRADE_BL2_VERIFY) += bl2_helper.o cmd_bl2.o
 obj-$(CONFIG_MTK_UPGRADE_FIP_VERIFY) += fip_helper.o
 
 obj-$(CONFIG_MTK_WEB_FAILSAFE) += failsafe.o
+obj-$(CONFIG_MTK_UPGRADE_OEM_FIP_BL33) += oem_fip_bl33.o
 
 obj-$(CONFIG_MTK_WGET) += mtk_wget.o cmd_wget.o
 

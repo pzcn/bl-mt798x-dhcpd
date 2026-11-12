@@ -3,3 +3,4 @@
 obj-$(CONFIG_WEBUI_FAILSAFE_UI_BOOTSTRAP) 	+= fsdata-bootstrap/
 obj-$(CONFIG_WEBUI_FAILSAFE_UI_GL) 			+= fsdata-gl/
 obj-$(CONFIG_WEBUI_FAILSAFE_UI_MTK) 		+= fsdata-mtk/
+obj-$(CONFIG_WEBUI_FAILSAFE_UI_WMA301) 		+= fsdata-wma301/

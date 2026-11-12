@@ -687,6 +687,44 @@ config MTK_UPGRADE_FW_ONLY
 	  vendor BL2/BL31 which must never be overwritten (e.g. TP-Link WMA301
 	  V2 running a custom BL33 inside the stock FIP).
 
+config MTK_UPGRADE_OEM_FIP_BL33
+	bool "Allow replacing only the BL33 inside a vendor FIP"
+	depends on MTK_UPGRADE_FW_ONLY && MTD
+	select XZ
+	select SHA256
+	help
+	  Registers an "fip" upgrade part that accepts a WMABL33 update package
+	  (header + xz-compressed u-boot.bin). The current FIP is read from the
+	  "fip" partition, the vendor BL31 is kept byte-for-byte and only BL33
+	  is replaced; the result is written through the parent MTD device and
+	  verified, with automatic restore of the previous FIP on failure.
+	  Power loss during the write bricks the board (TTL rescue needed).
+
+config MTK_UPGRADE_OEM_FIP_BL33_BOARD
+	string "Board identifier required in the BL33 update package"
+	depends on MTK_UPGRADE_OEM_FIP_BL33
+	default ""
+
+config MTK_MAC_FROM_MTD
+	bool "Set ethaddr from a MAC address stored in an MTD partition"
+	depends on MTD && NET
+	select BOARD_LATE_INIT
+	help
+	  At board_late_init (before the network is initialised) read 6 bytes
+	  from MTK_MAC_MTD_PART at MTK_MAC_MTD_OFFSET and, if they form a valid
+	  unicast MAC, set ethaddr. Set env "mac_from_mtd=0" to keep a custom
+	  ethaddr instead.
+
+config MTK_MAC_MTD_PART
+	string "MTD partition holding the MAC address"
+	depends on MTK_MAC_FROM_MTD
+	default "factory"
+
+config MTK_MAC_MTD_OFFSET
+	hex "Offset of the MAC address inside the partition"
+	depends on MTK_MAC_FROM_MTD
+	default 0x4
+
 config MTK_UPGRADE_BL2_VERIFY
 	bool "Verify bl2 image before upgrading"
 	select MTK_BOARDINFO
