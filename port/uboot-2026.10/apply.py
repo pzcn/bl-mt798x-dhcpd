@@ -255,6 +255,7 @@ def verify(tree):
         'CONFIG_XZ=y',
         'CONFIG_SHA256=y',
         'CONFIG_WEBUI_FAILSAFE_ADVANCED=y',
+        'CONFIG_WEBUI_FAILSAFE_LED=y',
         'CONFIG_WEBUI_FAILSAFE_COMPRESS_GZIP=y',
         'CONFIG_ENV_SIZE=0x1f000',
         'CONFIG_ENV_UBI_PART="ubi"',

@@ -58,6 +58,7 @@ class LegacyBootTests(unittest.TestCase):
         self.assertIn('CONFIG_CMD_BOOTMENU=y', CONFIG)
         self.assertIn('bootmenu_3=Start Web failsafe=httpd', ENV)
         self.assertIn('bootmenu_default=0', ENV)
+        self.assertIn('CONFIG_WEBUI_FAILSAFE_LED=y', CONFIG)
         self.assertIn('failsafe_led_idle=red:status on', ENV)
         self.assertIn('failsafe_led_ready=green:status blink 1000', ENV)
 
