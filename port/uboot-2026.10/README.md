@@ -6,6 +6,30 @@ This overlay targets [Yuzhii0718/uboot-airoha-mediatek](https://github.com/Yuzhi
 at commit `628fe8da3a8084f1f43839abb1a5d0470521a2c7` (U-Boot 2026.10-Airoha/Mediatek).
 The old 2025.07 code remains untouched on the original `wma301` branch.
 
+## Critical layout correction (2026-11-12)
+
+**Do not use the current temporary OpenWrt SSH shell to flash this package.**
+The existing Linux/community device tree and the 2026.10 experimental
+U-Boot DTS have a provisional `fip` partition at `0x200000..0x400000`.
+The original WMA301 V2 NAND contains the **actual OEM FIP at offset
+`0x20000`** inside the stock `factory_boot` area
+(`0x0..0x3c0000`). These are different physical regions.
+
+The first port of `wma301_oem_bl33.c` incorrectly required the provisional
+`0x200000` address. **This check has been corrected**: the C writer now
+requires `fip` at `0x20000`, length `0x3a0000`, 128 KiB erase blocks,
+and a 128 MiB parent NAND. With the current provisional device tree this
+**must fail closed** rather than write the wrong data. Passing the package
+validator does not authorize a raw `mtd write` to `/dev/mtd2`.
+
+To enable a real OEM-only BL33 update, first create and test an OEM-accurate
+U-Boot/Linux flash partition map, inspect the physical FIP TOC and backup
+its three erase blocks, then test recovery and the dedicated writer.
+The stock-toolbox path for an intact OEM firmware uses a different target:
+`/dev/mtd0 factory_boot`, size `0x3c0000`, with FIP eraseblocks at
+`0x20000`, `0x40000`, `0x60000`. It cannot be used unchanged with the
+read-only temporary Linux layout, whose `mtd0` is a 1 MiB `bl2` alias.
+
 ## What was ported
 
 - WMA301 V2 board DTS: GPIO0 Mesh, GPIO1 Reset, GPIO14/15 status LEDs,
@@ -125,5 +149,5 @@ make -C upstream -j"$(nproc)" CROSS_COMPILE=aarch64-linux-gnu- all
 
 The upstream revision remains pinned to reproduce the passing CI build.
 WMABL33 format, C writer compilation and embedded V4 UI have passed CI;
-**the OEM FIP Web writing path has not yet been proven on real hardware**.
+**the OEM FIP Web writing path has not yet been proven on real hardware and is intentionally blocked by the current incompatible partition map**.
 Future source updates should stay behind this same verification pipeline.
