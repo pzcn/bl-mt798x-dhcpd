@@ -238,9 +238,10 @@ def verify(tree):
     if not (ui / "main.js").is_file() or not (ui / "favicon.svg").is_file():
         raise RuntimeError("WMA301 V4 UI files not installed")
     javascript = (ui / "main.js").read_text()
-    if ("setenv wma301_bl33_update_enable 1" not in javascript or
+    if ("0x200000" not in javascript or
+            "0x20000" not in javascript or
             'precheck(file, "fip"' not in javascript):
-        raise RuntimeError("WMABL33 v1 frontend missing or locked UI route missing")
+        raise RuntimeError("WMABL33 UI missing OEM physical-vs-logical offset warning")
     if "favicon.svg" not in (tree / "failsafe/core.c").read_text():
         raise RuntimeError("V4 favicon route is missing")
     if (tree / "failsafe/modules/upgrade.c").read_text().count(
