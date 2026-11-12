@@ -42,6 +42,9 @@ CONFIG_CMD_DM=y
 CONFIG_CMD_GPIO=y
 CONFIG_CMD_GPT=y
 CONFIG_CMD_MTD=y
+CONFIG_CMD_MTDPARTS=y
+CONFIG_MTDIDS_DEFAULT="spi-nand0=spi-nand0"
+CONFIG_MTDPARTS_DEFAULT="spi-nand0:128k(bl2)ro,3712k(fip)ro,256k(reserved)ro,512k(factory_info)ro,512k(art)ro,2048k(config)ro,-(ubi)"
 CONFIG_CMD_PART=y
 CONFIG_CMD_RARP=y
 CONFIG_CMD_CDP=y
