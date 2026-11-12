@@ -75,9 +75,9 @@ class LegacyBootTests(unittest.TestCase):
         for gpio in (0, 1):
             self.assertIn(f'gpios = <&pio {gpio} GPIO_ACTIVE_LOW>;', DTS)
 
-    def test_spi_nand_clock_26mhz(self):
-        self.assertIn('spi-max-frequency = <26000000>;', DTS)
-        self.assertNotIn('spi-max-frequency = <52000000>;', DTS)
+    def test_spi_nand_clock_52mhz(self):
+        self.assertIn('spi-max-frequency = <52000000>;', DTS)
+        self.assertNotIn('spi-max-frequency = <26000000>;', DTS)
 
     def test_web_ui_entry_point_is_called(self):
         # Without the final boot() call the SPA stays at "正在加载…".
