@@ -252,7 +252,7 @@ VIEWS.firmware = () => {
 	const mac = S.env && S.env.ethaddr ? S.env.ethaddr.toUpperCase() : "—";
 	view(`<div class="grid">
 		<div class="stat"><div class="k">设备</div><div class="v">${esc((sys.board && sys.board.model) || "WMA301 V2")}</div></div>
-		<div class="stat"><div class="k">U-Boot</div><div class="v">${esc((S.ver.match(/U-Boot \\S+/) || ["2026.10"])[0])}</div></div>
+		<div class="stat"><div class="k">U-Boot</div><div class="v">${esc((S.ver.match(/U-Boot \S+/) || ["2026.10"])[0])}</div></div>
 		<div class="stat"><div class="k">MAC</div><div class="v mono">${esc(mac)}</div></div>
 		<div class="stat"><div class="k">内存</div><div class="v">${sys.ram && sys.ram.size ? human(sys.ram.size) : "—"}</div></div>
 		</div>
