@@ -15,7 +15,7 @@
 #define WMA301_MTDIDS "spi-nand0=spi-nand0"
 #define WMA301_MTDPARTS "spi-nand0:128k(bl2)ro,3712k(fip)ro,256k(reserved)ro,512k(factory_info)ro,512k(art)ro,2048k(config)ro,-(ubi)"
 #define WMA301_BOOTCMD "run check_buttons ; run boot_production ; run boot_recovery ; httpd"
-#define WMA301_CHECK_BUTTONS "if button mesh; then bootmenu 30; else btnchk; fi"
+#define WMA301_CHECK_BUTTONS "btnchk"
 
 static void wma301_repair_2025_env(void)
 {
@@ -52,11 +52,16 @@ static void wma301_repair_2025_env(void)
 		env_set("boot_tftp",
 			"tftpboot $loadaddr $bootfile && bootm $loadaddr");
 
-	/* Reset is handled separately by upstream board_late_init. */
-	env_set("btnchk_key", "mesh");
+	/*
+	 * The 2026.10 btnchk excludes Reset only from its default list;
+	 * explicitly configured "reset,mesh" checks both labels.
+	 * Holding either for four seconds starts HTTP failsafe, even with
+	 * no serial cable. Upstream Reset may also select default env.
+	 */
+	env_set("btnchk_key", "reset,mesh");
 	env_set("check_buttons", WMA301_CHECK_BUTTONS);
 
-	/* Discard any inherited destructive 2025 bootmenu actions. */
+	/* Manual serial bootmenu only; never divert button recovery into a menu. */
 	env_set("bootmenu_default", "0");
 	env_set("bootmenu_delay", "30");
 	env_set("bootmenu_0", "Boot installed FIT from UBI=run boot_production");

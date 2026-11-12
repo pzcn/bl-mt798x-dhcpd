@@ -99,8 +99,11 @@ def install(tree):
     mk = makefile.read_text()
     mk = patch_once(mk,
         "obj-$(CONFIG_MTK_WEB_FAILSAFE) += failsafe.o\n",
-        "obj-$(CONFIG_WEBUI_FAILSAFE_UI_WMA301) += wma301_oem_bl33.o\n"
-        "obj-$(CONFIG_WEBUI_FAILSAFE_UI_WMA301) += wma301_board_compat.o\n")
+        # The board_late_init call is unconditional; its object must not
+        # depend on which cosmetic Web failsafe UI was selected. The FIP
+        # writer is used by failsafe.c whenever MTK_WEB_FAILSAFE is enabled.
+        "obj-$(CONFIG_MTK_WEB_FAILSAFE) += wma301_oem_bl33.o\n"
+        "obj-y += wma301_board_compat.o\n")
     makefile.write_text(mk)
 
     ui_src = HERE / "fsdata-wma301"
@@ -296,15 +299,26 @@ def verify(tree):
                    'get_mtd_device_nm("factory_info")',
                    'mtd_read(mtd, 0x1c, sizeof(mac)',
                    'eth_env_set_enetaddr("ethaddr", mac)',
-                   'if button mesh; then bootmenu 30; else btnchk; fi',
+                   'env_set("btnchk_key", "reset,mesh")',
+                   'env_set("check_buttons", WMA301_CHECK_BUTTONS)',
+                   '#define WMA301_CHECK_BUTTONS "btnchk"',
                    'env_set("bootmenu_3", "Start Web failsafe=httpd")'):
         if marker not in compat:
             raise RuntimeError("WMA301 2025 runtime migration missing: " + marker)
     if "env_save(" in compat or "saveenv" in compat:
         raise RuntimeError("Boot migration must not persist environment")
-    if "wma301_board_compat.o" not in (
-            tree / "board/mediatek/common/Makefile").read_text():
-        raise RuntimeError("WMA301 compatibility object not linked")
+    mk = (tree / "board/mediatek/common/Makefile").read_text()
+    if "obj-y += wma301_board_compat.o" not in mk:
+        raise RuntimeError("Board compatibility object must link independent of Web UI")
+    if "obj-$(CONFIG_MTK_WEB_FAILSAFE) += wma301_oem_bl33.o" not in mk:
+        raise RuntimeError("OEM BL33 writer must link whenever failsafe.c is built")
+    env_default = (tree / "defenvs" / (NAME + "_env")).read_text()
+    if ("btnchk_key=reset,mesh" not in env_default or
+            "check_buttons=btnchk" not in env_default):
+        raise RuntimeError("Default environment lacks headless Reset/Mesh Web recovery")
+    if ('env_set("btnchk_key", "reset,mesh")' not in compat or
+            '#define WMA301_CHECK_BUTTONS "btnchk"' not in compat):
+        raise RuntimeError("Runtime override breaks headless button Web recovery")
 
     env = (tree / "defenvs" / (NAME + "_env")).read_text()
     for word in ("mtd erase", "mtd write", "ubi write", "ubi remove",

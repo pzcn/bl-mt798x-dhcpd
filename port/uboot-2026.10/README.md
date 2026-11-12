@@ -42,13 +42,24 @@ No partition table is flashed as part of BL33 migration.
   `mac_from_mtd=0` can opt out, as on V4. Random Ethernet MAC
   generation is disabled. If the factory MAC is invalid, no bogus MAC
   is installed.
-- **Mesh serial recovery menu:** when Mesh is held at boot,
-  `button mesh` opens `bootmenu`: boot installed UBI FIT, boot
-  recovery FIT, TFTP **RAM boot**, start Web failsafe, or reboot.
-  No raw NAND writing actions are present. The upstream `btnchk`
-  fallback can still offer a held-button Web recovery path.
-- **Reset:** upstream board handling can select the built-in defaults
-  during a Reset-key boot. This does not repair a corrupted FIP.
+- **Headless Web recovery (Reset or Mesh):** hold either physical
+  button while powering on, and keep holding through the U-Boot
+  check for approximately **four seconds**. `btnchk_key=reset,mesh`
+  and `check_buttons=btnchk` are set both in the default env and
+  in `board_late_init` after any stored 2025 environment is imported.
+  Upstream 2026.10 excludes Reset only from its *default* key list:
+  an explicitly configured Reset label is supported. A successful
+  hold starts `httpd` directly at `http://192.168.1.1/`,
+  **without UART interaction**. This must still be proven on actual
+  WMA301 V2.0 hardware.
+- **Manual TTL bootmenu:** at the serial `MT7981>` prompt, run
+  `bootmenu` for installed FIT, recovery FIT, TFTP **RAM boot**,
+  Web failsafe and reboot. Neither physical button starts a menu
+  automatically. No raw NAND-writing menu actions are present.
+- **Reset early handling:** the upstream board can select defaults
+  instead of persisted variables when Reset is detected. The new
+  default `btnchk_key` includes both physical buttons. Holding
+  Reset is not a remedy for corrupt BL2/FIP.
 - **LED polarity:** on measured V2.0 hardware, GPIO14 red and GPIO15
   green are both **active HIGH**. GPIO0 Mesh and GPIO1 Reset remain
   active LOW.
@@ -105,7 +116,8 @@ CI build does not demonstrate flash-write, power-loss or rollback safety.
 ## Build
 
 CI fetches pinned upstream 2026.10, applies `apply.py`, audits
-the 2025 partition layout and legacy migration, compiles BL33, checks
+the 2025 partition layout, both headless Web-recovery keys and legacy
+migration, compiles BL33, checks
 V4 UI embedding and package contents, and uploads an explicitly
 **experimental / not-for-flashing** artifact. It does not publish
 a release or modify any router.
@@ -123,4 +135,5 @@ make -C upstream -j"$(nproc)" CROSS_COMPILE=aarch64-linux-gnu- all
 ```
 
 Still required on actual hardware: legacy saved-env boot, factory MAC,
-LED polarity, Mesh menu, FIT volume naming and safe FIP/UBI recovery.
+LED polarity, Reset and Mesh four-second Web entry without TTL, manual
+serial menu, FIT volume naming and safe FIP/UBI recovery.

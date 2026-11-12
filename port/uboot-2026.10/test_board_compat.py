@@ -32,8 +32,17 @@ class LegacyBootTests(unittest.TestCase):
         self.assertIn('eth_env_set_enetaddr("ethaddr", mac)', BOARD)
         self.assertIn('# CONFIG_NET_RANDOM_ETHADDR is not set', CONFIG)
 
-    def test_mesh_safe_menu(self):
-        self.assertIn('if button mesh; then bootmenu 30; else btnchk; fi', BOARD)
+    def test_reset_and_mesh_boot_web_without_serial(self):
+        # The 2026.10 btnchk accepts an explicit Reset label.
+        self.assertIn('#define WMA301_CHECK_BUTTONS "btnchk"', BOARD)
+        self.assertIn('env_set("btnchk_key", "reset,mesh")', BOARD)
+        self.assertIn('env_set("check_buttons", WMA301_CHECK_BUTTONS)', BOARD)
+        self.assertIn('btnchk_key=reset,mesh', ENV)
+        self.assertIn('check_buttons=btnchk', ENV)
+        self.assertNotIn('if button mesh; then bootmenu', BOARD)
+        self.assertNotIn('if button mesh; then bootmenu', ENV)
+        self.assertNotIn('check_buttons=bootmenu', ENV)
+        # The manual menu remains available via "bootmenu" in the TTL console.
         self.assertIn('Start Web failsafe=httpd', BOARD)
         self.assertIn('TFTP RAM boot (no flash write)', BOARD)
         self.assertNotIn('mtd erase', BOARD)
@@ -41,6 +50,12 @@ class LegacyBootTests(unittest.TestCase):
         self.assertIn('CONFIG_CMD_BUTTON=y', CONFIG)
         self.assertIn('CONFIG_CMD_BOOTMENU=y', CONFIG)
         self.assertIn('bootmenu_3=Start Web failsafe=httpd', ENV)
+        self.assertIn('bootmenu_default=0', ENV)
+
+    def test_boot_compat_module_not_tied_to_ui_selection(self):
+        self.assertIn('obj-y += wma301_board_compat.o', APPLY)
+        self.assertIn('obj-$(CONFIG_MTK_WEB_FAILSAFE) += wma301_oem_bl33.o', APPLY)
+        self.assertNotIn('obj-$(CONFIG_WEBUI_FAILSAFE_UI_WMA301) += wma301_board_compat.o', APPLY)
 
     def test_led_and_button_polarity(self):
         for gpio in (14, 15):
