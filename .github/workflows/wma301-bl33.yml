@@ -1,0 +1,96 @@
+name: WMA301 V2 BL33 (OEM BL2/BL31 kept)
+on:
+  push:
+    branches: ["wma301"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wma301-bl33-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      UB: uboot-mtk-20250711
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cross-compiler and U-Boot dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            gcc-aarch64-linux-gnu build-essential flex bison libssl-dev \
+            device-tree-compiler bc python3 python3-setuptools \
+            python3-pyelftools swig file binutils-aarch64-linux-gnu nodejs npm
+
+      - name: Prepare output
+        run: mkdir -p output
+
+      - name: Build BL33 only
+        env:
+          CROSS_COMPILE: aarch64-linux-gnu-
+        run: |
+          set -euo pipefail
+          if test -f "$UB/failsafe/embedded/package.json"; then
+            npm install --prefix "$UB/failsafe/embedded" --no-audit --no-fund
+          fi
+          make -C "$UB" mt7981_tplink_wma301v2_custom_defconfig
+          CFG="$UB/.config"
+          need() { grep -Fqx "$1" "$CFG" || { echo "MISSING: $1" >&2; exit 1; }; }
+          need 'CONFIG_TEXT_BASE=0x41e00000'
+          need 'CONFIG_ENV_IS_IN_UBI=y'
+          need 'CONFIG_ENV_UBI_VOLUME="ubootenv"'
+          need 'CONFIG_ENV_UBI_VOLUME_REDUND="ubootenv2"'
+          need 'CONFIG_ENV_UBI_VOLUME_CREATE=y'
+          need 'CONFIG_CMD_GL_BTN=y'
+          need 'CONFIG_MTK_WEB_FAILSAFE=y'
+          need 'CONFIG_MTK_WEB_FAILSAFE_AFTER_BOOT_FAILURE=y'
+          need 'CONFIG_MTK_DHCPD=y'
+          need 'CONFIG_WEBUI_FAILSAFE_CONSOLE=y'
+          need 'CONFIG_WEBUI_FAILSAFE_ENV=y'
+          need 'CONFIG_WEBUI_FAILSAFE_UBI=y'
+          need 'CONFIG_MTK_UPGRADE_FW_ONLY=y'
+          need 'CONFIG_GLBTN_DEFAULT_KEYS="reset,mesh"'
+          if grep -Eq '^CONFIG_(ENV_IS_IN_MTD|ENV_IS_NOWHERE|ENABLE_NAND_NMBM|MTK_DUAL_BOOT|WEBUI_FAILSAFE_FLASH|WEBUI_FAILSAFE_FACTORY|WEBUI_FAILSAFE_SIMG|WEBUI_FAILSAFE_NAND_RAW)=y$' "$CFG"; then
+            echo "Unsafe configuration" >&2; exit 1
+          fi
+          make -C "$UB" -j"$(nproc)" all
+          test -s "$UB/u-boot.bin"
+          cp "$UB/u-boot.bin" output/WMA301_CUSTOM_BL33.bin
+          cp "$CFG" output/u-boot.config
+
+      - name: Audit link address and size, make xz
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, lzma, struct
+          from pathlib import Path
+          raw = Path("output/WMA301_CUSTOM_BL33.bin").read_bytes()
+          assert struct.unpack_from("<Q", raw, 8)[0] == 0x41e00000
+          assert len(raw) < 0x200000, hex(len(raw))   # MTK BL2 BL33 limit
+          xz = lzma.compress(raw, format=lzma.FORMAT_XZ,
+                             check=lzma.CHECK_CRC32, preset=9)
+          assert lzma.decompress(xz) == raw
+          Path("output/WMA301_CUSTOM_BL33.xz").write_bytes(xz)
+          end = 0x23848 + len(xz)
+          rep = {"raw_size": len(raw), "xz_size": len(xz),
+                 "fip_end_in_flash": hex(end),
+                 "fits_before_0x3c0000": end <= 0x3c0000,
+                 "bl33_sha256": hashlib.sha256(raw).hexdigest(),
+                 "xz_sha256": hashlib.sha256(xz).hexdigest()}
+          assert rep["fits_before_0x3c0000"], rep
+          Path("output/size-audit.json").write_text(json.dumps(rep, indent=2) + "\n")
+          print(json.dumps(rep, indent=2))
+          PY
+          (cd output && sha256sum WMA301_CUSTOM_BL33.* > SHA256SUMS.txt)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WMA301_CUSTOM_BL33
+          path: output/
+          retention-days: 30
+          if-no-files-found: error

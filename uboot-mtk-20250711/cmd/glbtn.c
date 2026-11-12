@@ -306,7 +306,7 @@ static int do_glbtn(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[
 
 	key_env = env_get("glbtn_key");
 	if (!key_env)
-		key_env = "reset";
+		key_env = CONFIG_GLBTN_DEFAULT_KEYS;
 
 	gpio_label = env_get("glbtn_gpio");
 

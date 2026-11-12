@@ -3152,6 +3152,14 @@ config CMD_GL_BTN
 	default n
 	select POLLER
 
+config GLBTN_DEFAULT_KEYS
+	string "Default glbtn keys when env glbtn_key is unset"
+	depends on CMD_GL_BTN
+	default "reset"
+	help
+	  Comma-separated button labels checked by glbtn when the environment
+	  variable glbtn_key does not exist, e.g. "reset,mesh".
+
 config CMD_SHOW_MTD_LAYOUT
 	bool "Show mtd layout command"
 	depends on OF_LIBFDT

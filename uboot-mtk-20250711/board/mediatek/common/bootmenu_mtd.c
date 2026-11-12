@@ -10,6 +10,18 @@
 #include "autoboot_helper.h"
 #include "mtd_helper.h"
 
+#ifdef CONFIG_MTK_UPGRADE_FW_ONLY
+static const struct data_part_entry mtd_parts[] = {
+	{
+		.name = "Firmware",
+		.abbr = "fw",
+		.env_name = "bootfile",
+		.post_action = UPGRADE_ACTION_BOOT,
+		.validate = generic_mtd_validate_fw,
+		.write = generic_mtd_write_fw,
+	},
+};
+#else
 static const struct data_part_entry mtd_parts[] = {
 	{
 		.name = "ATF BL2",
@@ -81,6 +93,7 @@ static const struct data_part_entry mtd_parts[] = {
 		.write = generic_mtd_write_simg,
 	},
 };
+#endif /* CONFIG_MTK_UPGRADE_FW_ONLY */
 
 void board_upgrade_data_parts(const struct data_part_entry **dpes, u32 *count)
 {
@@ -104,6 +117,28 @@ int board_chainload_default(bool do_boot)
 }
 #endif
 
+#ifdef CONFIG_MTK_UPGRADE_FW_ONLY
+static const struct bootmenu_entry mtd_bootmenu_entries[] = {
+	{
+		.desc = "Startup system (Default)",
+		.cmd = "mtkboardboot"
+	},
+	{
+		.desc = "Upgrade firmware",
+		.cmd = "mtkupgrade fw"
+	},
+	{
+		.desc = "Load image",
+		.cmd = "mtkload"
+	},
+#ifdef CONFIG_MTK_WEB_FAILSAFE
+	{
+		.desc = "Start Web failsafe",
+		.cmd = "httpd"
+	},
+#endif
+};
+#else
 static const struct bootmenu_entry mtd_bootmenu_entries[] = {
 #ifdef CONFIG_MTK_AUTO_CHAINLOAD_BL
 	{
@@ -173,6 +208,7 @@ static const struct bootmenu_entry mtd_bootmenu_entries[] = {
 		.cmd = "mtkbootconf"
 	},
 };
+#endif /* CONFIG_MTK_UPGRADE_FW_ONLY */
 
 void board_bootmenu_entries(const struct bootmenu_entry **menu, u32 *count)
 {

@@ -676,6 +676,17 @@ config MTK_FIP_SUPPORT
 	  Enable this option will allow boards to use ATF related
 	  firmware image package (FIP) commands and APIs.
 
+config MTK_UPGRADE_FW_ONLY
+	bool "Only allow firmware upgrade from bootmenu/failsafe"
+	default n
+	help
+	  Register only the "Firmware" data part for mtkupgrade and the Web
+	  failsafe. BL2, FIP, BL31/BL33, factory and single-image writers are
+	  not registered and the boot menu only offers boot, firmware upgrade,
+	  image loading and Web failsafe. Intended for boards that keep a
+	  vendor BL2/BL31 which must never be overwritten (e.g. TP-Link WMA301
+	  V2 running a custom BL33 inside the stock FIP).
+
 config MTK_UPGRADE_BL2_VERIFY
 	bool "Verify bl2 image before upgrading"
 	select MTK_BOARDINFO
