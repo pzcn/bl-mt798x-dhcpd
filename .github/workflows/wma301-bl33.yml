@@ -130,6 +130,15 @@ jobs:
           PY
           (cd output && sha256sum *.bin *.xz > SHA256SUMS.txt)
 
+      - name: Verify WMABL33 package against U-Boot check_pkg binary contract
+        run: |
+          python3 -m unittest -v tests/test_wma301_bl33_update.py
+          python3 scripts/verify_wma301_bl33_update.py \
+            --package output/DO_NOT_FLASH_WMA301_BL33_UPDATE_EXPERIMENTAL.bin \
+            --raw output/WMA301_CUSTOM_BL33.bin \
+            --xz output/WMA301_CUSTOM_BL33.xz \
+            --report output/update-package-audit.json
+
       - uses: actions/upload-artifact@v4
         with:
           name: WMA301_CUSTOM_BL33
