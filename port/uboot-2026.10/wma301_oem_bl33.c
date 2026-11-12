@@ -43,6 +43,8 @@
 #define FIP_TOC_START		0x88
 #define MAX_BL33_RAW		SZ_2M
 #define MAX_FIP_PART		SZ_4M
+/* OEM FIP must not touch blocks after physical 0x80000. */
+#define MAX_OEM_FIP_WRITABLE	0x60000
 
 /* Work buffers above the load address (failsafe upload buffer is elsewhere) */
 #define BUF_RAW_OFF		0x1000000
@@ -272,7 +274,8 @@ int wma301_oem_bl33_validate(const void *data, size_t size)
 	ret = read_old_fip(&mtd, work_buf(BUF_OLD_OFF), &bl31_off, &bl31_size, &used);
 	if (ret)
 		return ret;
-	if (FIP_TOC_START + bl31_size + h->xz_size > mtd->size) {
+	if (FIP_TOC_START + bl31_size + h->xz_size > MAX_OEM_FIP_WRITABLE ||
+	    used > MAX_OEM_FIP_WRITABLE) {
 		printf("BL33 update: new FIP does not fit the '%s' partition\n", FIP_PART_NAME);
 		ret = -E2BIG;
 	}
@@ -299,14 +302,15 @@ int wma301_oem_bl33_write(const void *data, size_t size)
 	master = mtd->parent;
 	base = mtd->offset;
 
-	if (FIP_TOC_START + bl31_size + h->xz_size > mtd->size) {
+	if (FIP_TOC_START + bl31_size + h->xz_size > MAX_OEM_FIP_WRITABLE ||
+	    used > MAX_OEM_FIP_WRITABLE) {
 		ret = -E2BIG;
 		goto out;
 	}
 	new_len = build_new_fip(old, bl31_size, (const u8 *)data + PKG_HDR_SIZE,
 				h->xz_size, new);
 	len = ALIGN(max((u64)new_len, used), mtd->erasesize);
-	if (len > mtd->size) {
+	if (len > MAX_OEM_FIP_WRITABLE) {
 		ret = -E2BIG;
 		goto out;
 	}
