@@ -80,6 +80,10 @@ def install(tree):
         "\tenv_relocate();\n"
         "\t/* Always discard any persistent OEM-BL33 write authorization. */\n"
         "\tenv_set(\"wma301_bl33_update_enable\", NULL);\n"
+        "\t/* WMA301_2025_MTD_LAYOUT: ensure old UBI env cannot override layout. */\\n"
+        "\tenv_set(\\\"mtdids\\\", \\\"spi-nand0=spi-nand0\\\");\\n"
+        "\tenv_set(\\\"mtdparts\\\", \\\"spi-nand0:128k(bl2)ro,3712k(fip)ro,256k(reserved)ro,512k(factory_info)ro,512k(art)ro,2048k(config)ro,-(ubi)\\\");\\n"
+
         "\t/* WMA301_SAFE_BOOTCMD_FALLBACK: in-memory recovery for old UBI env. */\n"
         "\tif (!env_get(\"bootcmd\") || !*env_get(\"bootcmd\")) {\n"
         "\t\tputs(\"WMA301: no bootcmd in UBI env; enabling RAM-only boot fallback\\n\");\n"
@@ -206,9 +210,26 @@ def verify(tree):
     for marker, desc in layout.items():
         if marker not in dts:
             raise RuntimeError("Unsafe WMA301 MTD mapping: " + desc)
+
+    # Pin actual bootloader partition names/sizes to the 2025 board:
+    # the DT and Kconfig must both agree. The old Kconfig is ground truth.
+    old_defconfig = (HERE.parents[1] / "uboot-mtk-20250711" / "configs"
+                     / "mt7981_tplink_wma301v2_custom_defconfig").read_text()
+    compiled = (tree / ".config").read_text()
+    for k in ("CONFIG_MTDIDS_DEFAULT", "CONFIG_MTDPARTS_DEFAULT"):
+        old_setting = next((line for line in old_defconfig.splitlines()
+                            if line.startswith(k + "=")), None)
+        if not old_setting or old_setting not in compiled.splitlines():
+            raise RuntimeError("2026.10 differs from 2025 MTD layout: " + k)
+    if "CONFIG_SYS_MTDPARTS_RUNTIME=y" in compiled.splitlines():
+        raise RuntimeError("Uncontrolled runtime mtdparts would override 2025 layout")
     c = (tree / ".config").read_text()
     required = [
         'CONFIG_TEXT_BASE=0x41e00000',
+        'CONFIG_CMD_MTDPARTS=y',
+        'CONFIG_MTD_PARTITIONS=y',
+        'CONFIG_MTDIDS_DEFAULT="spi-nand0=spi-nand0"',
+        'CONFIG_MTDPARTS_DEFAULT="spi-nand0:128k(bl2)ro,3712k(fip)ro,256k(reserved)ro,512k(factory_info)ro,512k(art)ro,2048k(config)ro,-(ubi)"',
         'CONFIG_DEFAULT_DEVICE_TREE="' + NAME + '"',
         'CONFIG_MTK_WEB_FAILSAFE=y',
         'CONFIG_WEBUI_FAILSAFE_LAYOUT_FIP=y',
@@ -279,6 +300,10 @@ def verify(tree):
         raise RuntimeError("Missing RAM-only missing-bootcmd migration")
     if "env_set(\"wma301_bl33_update_enable\", NULL)" not in board:
         raise RuntimeError("Write authorization not cleared on boot")
+
+    if ('WMA301_2025_MTD_LAYOUT' not in board or
+            'env_set("mtdparts", "spi-nand0:128k(bl2)' not in board):
+        raise RuntimeError("Legacy UBI env can override 2025 OEM partition layout")
     if "env_save()" in board or "saveenv" in board:
         raise RuntimeError("Board boot migration must never save environment")
     env = (tree / "defenvs" / (NAME + "_env")).read_text()
