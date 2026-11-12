@@ -37,6 +37,31 @@ until OEM BL31 compatibility, network and button recovery are verified on
 actual WMA301 V2 hardware. A passing package checksum does not make the
 unvalidated BL33 flash-safe.
 
+## V4 Toolbox-style Web UI (ported for 2026.10)
+
+The UI sources are copied from the proven V4 design on
+`feat/wma301-v4-clean` into `fsdata-wma301/`, and `apply.py` installs
+them into the new 2026.10 failsafe resource tree. The 2026.10 Kconfig,
+page routing and favicon handler have been adapted to this separate style.
+
+- Original **Toolbox router SVG** for the header and favicon.
+- Light mode by default; CSS follows system dark-mode preference.
+- V4 navigation, device info and cards. The backend `/sysinfo`
+  is enabled, while Web console, environment editor and UBI management
+  remain disabled.
+- **Initramfs** RAM boot remains usable through `/upload`.
+- Firmware and BL33 update cards explicitly say **not available** in this
+  preview. The board's `failsafe_validate_image()` and
+  `failsafe_write_image()` continue to reject persistent uploads.
+- `/reboot-failsafe` is **blocked on the backend** because the new
+  upstream endpoint would call `env_save()`. Normal reboot remains.
+- CI checks JavaScript syntax and the gzip-embedded HTML, CSS, JS and
+  original SVG after compiling U-Boot.
+
+**Scope:** This is a visual and read-only/RAM recovery port, not a full
+port of the V4 firmware-update and FIP BL33 writer. The latter cannot
+be enabled until OEM layout and hardware recovery are verified.
+
 ## Important caveats
 
 The observed OEM partition map is BL2 1 MiB, u-boot-env 1 MiB,
