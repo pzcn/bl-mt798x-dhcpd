@@ -73,6 +73,84 @@ def install(tree):
     board.write_text(board_text.replace(board_anchor, repair, 1), encoding="utf-8")
     print("Installed WMA301 bootcmd fallback (RAM only, no flash writes)")
 
+    # Reuse the existing V4 Web design with 2026.10 resource registration.
+    ui_src = HERE / "fsdata-wma301"
+    ui_dst = tree / "failsafe/embedded/fsdata-wma301"
+    required_ui = {"Makefile", "embed.S", "index.html", "main.js",
+                   "style.css", "favicon.svg", "initramfs.html",
+                   "fip.html", "bl2.html"}
+    if not required_ui.issubset({p.name for p in ui_src.iterdir()}):
+        raise RuntimeError("Missing WMA301 V4 UI sources")
+    ui_dst.mkdir(exist_ok=True)
+    for item in ui_src.iterdir():
+        if item.is_file():
+            (ui_dst / item.name).write_bytes(item.read_bytes())
+    print("Installed WMA301 V4 Web assets:", len(list(ui_src.iterdir())))
+
+    kpath = tree / "failsafe/Kconfig"
+    config_text = kpath.read_text()
+    config_text = patch_once(
+        config_text, "config WEBUI_FAILSAFE_UI_BRUTALISM\n",
+        'config WEBUI_FAILSAFE_UI_WMA301\n'
+        '\tbool "WMA301 V4 light/dark recovery UI"\n'
+        '\thelp\n'
+        '\t  WMA301 V2 single-page recovery UI, based on the Toolbox styling.\n'
+        '\t  This experiment disables persistent flash writes.\n\n')
+    kpath.write_text(config_text)
+    embedmk = tree / "failsafe/embedded/Makefile"
+    embed_txt = embedmk.read_text()
+    embed_txt = patch_once(
+        embed_txt,
+        "obj-$(CONFIG_WEBUI_FAILSAFE_UI_BRUTALISM) += fsdata-brutalism/\n",
+        "obj-$(CONFIG_WEBUI_FAILSAFE_UI_WMA301) += fsdata-wma301/\n")
+    embedmk.write_text(embed_txt)
+
+    # The 2026.10 page inventory does not register favicon.svg for custom
+    # styles. Register only this static SVG; do not expose theme writes.
+    core_file = tree / "failsafe/core.c"
+    core = core_file.read_text()
+    core = patch_once(core,
+        "/*\n * A registered JS URI is the name of the embedded asset",
+        '#if IS_ENABLED(CONFIG_WEBUI_FAILSAFE_UI_WMA301)\n'
+        'static void wma301_favicon_handler(enum httpd_uri_handler_status status,\n'
+        '\t\tstruct httpd_request *request,\n'
+        '\t\tstruct httpd_response *response)\n'
+        '{\n'
+        '\tif (status != HTTP_CB_NEW)\n'
+        '\t\treturn;\n'
+        '\tif (failsafe_output_file(response, "favicon.svg", "image/svg+xml"))\n'
+        '\t\tnot_found_handler(status, request, response);\n'
+        '}\n'
+        '#endif\n\n')
+    core = patch_once(core,
+        '\thttpd_register_uri_handler(inst, "/style.css", &style_handler, NULL);\n',
+        '#if IS_ENABLED(CONFIG_WEBUI_FAILSAFE_UI_WMA301)\n'
+        '\thttpd_register_uri_handler(inst, "/favicon.svg",\n'
+        '\t\t\t\t   &wma301_favicon_handler, NULL);\n'
+        '#endif\n')
+    core_file.write_text(core)
+
+    # Rebooting "to failsafe" writes the boot environment in the new
+    # upstream even when all advanced Web features are off. Disable it.
+    upgrade_file = tree / "failsafe/modules/upgrade.c"
+    upgrade = upgrade_file.read_text()
+    marker = "WMA301_PREVIEW_DISABLE_PERSISTENT_FAILSAFE_REBOOT"
+    start = upgrade.index("void reboot_failsafe_handler(")
+    loc = upgrade.index("\tif (status == HTTP_CB_NEW) {\n", start)
+    upgrade = upgrade[:loc] + (
+        '\tif (status == HTTP_CB_NEW) {\n'
+        '#if IS_ENABLED(CONFIG_WEBUI_FAILSAFE_UI_WMA301)\n'
+        '\t\t/* ' + marker + ': prevents env_save() from this endpoint. */\n'
+        '\t\tfailsafe_http_reply_text(response, 403,\n'
+        '\t\t\t"WMA301 experimental: persistent failsafe reboot disabled");\n'
+        '\t\treturn;\n'
+        '#endif\n'
+    ) + upgrade[loc + len("\tif (status == HTTP_CB_NEW) {\n"):]
+    if upgrade.count(marker) != 1:
+        raise RuntimeError("Cannot safely guard persistent reboot route")
+    upgrade_file.write_text(upgrade)
+    print("Registered V4 UI and blocked persistent reboot endpoint")
+
 def verify(tree):
     c = (tree / ".config").read_text()
     required = [
@@ -94,7 +172,7 @@ def verify(tree):
         if line not in c.splitlines():
             raise RuntimeError("Missing required option: " + line)
     denied = [
-        "MTK_TELNETD", "NETCONSOLE", "WEBUI_FAILSAFE_ADVANCED",
+        "MTK_TELNETD", "NETCONSOLE", "WEBUI_FAILSAFE_I18N",
         "WEBUI_FAILSAFE_ENV", "WEBUI_FAILSAFE_UBI",
         "WEBUI_FAILSAFE_CONSOLE", "WEBUI_FAILSAFE_FLASH",
         "WEBUI_FAILSAFE_FLASH_LAYOUT", "WEBUI_FAILSAFE_SIMG",
@@ -107,6 +185,20 @@ def verify(tree):
     s = (tree / "board/mediatek/common/failsafe.c").read_text()
     if s.count(MARKER) != 2:
         raise RuntimeError("Missing Web flash guards")
+    ui = tree / "failsafe/embedded/fsdata-wma301"
+    if not (ui / "main.js").is_file() or not (ui / "favicon.svg").is_file():
+        raise RuntimeError("WMA301 V4 UI files not installed")
+    if "实验版禁止写入 Flash" not in (ui / "main.js").read_text():
+        raise RuntimeError("V4 frontend flash guards missing")
+    if "favicon.svg" not in (tree / "failsafe/core.c").read_text():
+        raise RuntimeError("V4 favicon route is missing")
+    if (tree / "failsafe/modules/upgrade.c").read_text().count(
+            "WMA301_PREVIEW_DISABLE_PERSISTENT_FAILSAFE_REBOOT") != 1:
+        raise RuntimeError("Persistent reboot endpoint is not guarded")
+    if "WEBUI_FAILSAFE_UI_WMA301" not in (tree / "failsafe/Kconfig").read_text():
+        raise RuntimeError("WMA301 UI Kconfig choice is missing")
+    if "fsdata-wma301/" not in (tree / "failsafe/embedded/Makefile").read_text():
+        raise RuntimeError("WMA301 UI embedding rule is missing")
     board = (tree / "board/mediatek/mt7981/mt7981_rfb.c").read_text()
     if board.count("WMA301_SAFE_BOOTCMD_FALLBACK") != 1:
         raise RuntimeError("Missing RAM-only missing-bootcmd migration")
