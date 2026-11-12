@@ -299,7 +299,7 @@ VIEWS.uboot = () => {
 	view(`<div class="card"><h2>U-Boot 更新 · WMABL33 v1</h2>
 		<p class="sub">只接受 <span class="mono">WMA301_BL33_UPDATE.bin</span>（128 字节 WMABL33 v1 头 + XZ/CRC32 压缩 BL33）。服务端将验证板型、两个 SHA-256、加载地址及原厂 FIP 结构，保留原厂 BL2/BL31。</p>
 		<div class="note warn"><b>实验性功能，具有变砖风险：</b>只会修改原厂 FIP 中的 BL33；如果写入中断或新 BL33 无法启动，仍可能需要 TTL/BootROM 救援。请提前备份原厂 FIP。</div>
-		<div class="note warn"><b>默认锁定写入。</b>须先在 TTL 命令行执行 <span class="mono">setenv wma301_bl33_update_enable 1</span>，不要执行 <span class="mono">saveenv</span>。授权只在当前内存会话有效，写入前会被消费。未授权时可以上传校验，但不能写入。</div>
+		<div class="note warn"><b>当前构建禁止写入：</b>现有临时系统的 fip 分区起始为 0x200000，而原厂实际 FIP 在 0x20000。专用写入器已加硬性地址校验，不匹配就拒绝。<b>请勿在此设备上尝试 TTL 授权或直接 mtd write。</b>本页面仅用于格式验证和后续 OEM 分区适配。</div>
 		<div id="ub_area">${steps(0)}${dropZone("ub", ".bin", "仅支持 WMA301_BL33_UPDATE.bin")}</div>
 		<p class="sub" style="margin-top:12px">当前：<span class="mono">${esc(S.ver)}</span></p></div>`);
 	bindDrop("ub", (file) => precheck(file, "fip", $("ub_area")));
