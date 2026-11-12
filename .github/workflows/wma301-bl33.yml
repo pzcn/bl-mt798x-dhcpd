@@ -69,6 +69,7 @@ jobs:
           need 'CONFIG_MTK_WEB_FAILSAFE=y'
           need 'CONFIG_MTK_WEB_FAILSAFE_AFTER_BOOT_FAILURE=y'
           need 'CONFIG_MTK_DHCPD=y'
+          need 'CONFIG_MTK_TELNETD=y'
           need 'CONFIG_WEBUI_FAILSAFE_CONSOLE=y'
           need 'CONFIG_WEBUI_FAILSAFE_ENV=y'
           need 'CONFIG_WEBUI_FAILSAFE_UBI=y'
