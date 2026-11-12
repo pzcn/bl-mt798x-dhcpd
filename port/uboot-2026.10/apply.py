@@ -54,6 +54,17 @@ def install(tree):
         "\t}\n"
         "\treturn failsafe_error(-EPERM, \"WMA301: generic flash writes disabled\");\n"
     ))
+    # Upstream enables MTK_FAILSAFE_VERIFY_WRITE by default, and its
+    # generic FIP verifier compares the WMABL33 *package* bytes against
+    # the raw FIP partition. The OEM updater has already erased, written
+    # and byte-for-byte read-back compared the actual repacked FIP.
+    # Do not run the incompatible second generic verification.
+    verify_sig = "int failsafe_verify_image(const void *data, size_t size, failsafe_fw_t fw)\n{\n"
+    s = patch_once(s, verify_sig, (
+        "\t/* WMA301_OEM_FIP_READBACK: wma301_oem_bl33_write verified FIP. */\n"
+        "\tif (fw == FW_TYPE_FIP)\n"
+        "\t\treturn 0;\n"
+    ))
     path.write_text(s)
     assert s.count(MARKER) == 2
     print("Installed two Web upload flash guards")
@@ -241,6 +252,8 @@ def verify(tree):
     if ("wma301_oem_bl33_validate" not in failsafe or
             "wma301_bl33_update_enable" not in failsafe):
         raise RuntimeError("WMABL33 upload gate/validator missing")
+    if "WMA301_OEM_FIP_READBACK" not in failsafe:
+        raise RuntimeError("Generic FIP verification not bypassed for WMABL33")
     if "wma301_oem_bl33.o" not in (tree / "board/mediatek/common/Makefile").read_text():
         raise RuntimeError("WMABL33 object missing from build")
     if "WEBUI_FAILSAFE_UI_WMA301" not in (tree / "failsafe/Kconfig").read_text():
