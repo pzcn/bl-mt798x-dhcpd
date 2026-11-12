@@ -1,0 +1,109 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * WMA301 V2 compatibility for U-Boot 2026.10.
+ * RAM-only 2025 environment migration, safe Mesh bootmenu and factory MAC.
+ */
+#include <env.h>
+#include <net.h>
+#include <mtd.h>
+#include <linux/err.h>
+#include <linux/mtd/mtd.h>
+#include <linux/string.h>
+#include <stdio.h>
+#include "../mt7981/wma301_board_compat.h"
+
+#define WMA301_MTDIDS "spi-nand0=spi-nand0"
+#define WMA301_MTDPARTS "spi-nand0:128k(bl2)ro,3712k(fip)ro,256k(reserved)ro,512k(factory_info)ro,512k(art)ro,2048k(config)ro,-(ubi)"
+#define WMA301_BOOTCMD "run check_buttons ; run boot_production ; run boot_recovery ; httpd"
+#define WMA301_CHECK_BUTTONS "if button mesh; then bootmenu 30; else btnchk; fi"
+
+static void wma301_repair_2025_env(void)
+{
+	const char *bootcmd = env_get("bootcmd");
+	const char *script;
+	char var[24];
+	unsigned int i;
+
+	/* 2025 saved bootcmd=mtkboardboot is not a command in 2026.10. */
+	if (!bootcmd || !*bootcmd || strstr(bootcmd, "mtkboardboot")) {
+		puts("WMA301: replacing legacy mtkboardboot in RAM\n");
+		env_set("bootcmd", WMA301_BOOTCMD);
+	}
+	if (!env_get("loadaddr"))
+		env_set("loadaddr", "0x46000000");
+	script = env_get("boot_production");
+	if (!script || !*script || strstr(script, "mtkboardboot"))
+		env_set("boot_production",
+			"ubi part ubi && ubi read $loadaddr fit && bootm $loadaddr");
+	script = env_get("boot_recovery");
+	if (!script || !*script || strstr(script, "mtkboardboot"))
+		env_set("boot_recovery",
+			"ubi part ubi && ubi read $loadaddr recovery && bootm $loadaddr");
+	script = env_get("boot_tftp");
+	if (!script || !*script || strstr(script, "mtkboardboot"))
+		env_set("boot_tftp",
+			"tftpboot $loadaddr $bootfile && bootm $loadaddr");
+
+	/* Reset is handled separately by upstream board_late_init. */
+	env_set("btnchk_key", "mesh");
+	env_set("check_buttons", WMA301_CHECK_BUTTONS);
+
+	/* Discard any inherited destructive 2025 bootmenu actions. */
+	env_set("bootmenu_default", "0");
+	env_set("bootmenu_delay", "30");
+	env_set("bootmenu_0", "Boot installed FIT from UBI=run boot_production");
+	env_set("bootmenu_1", "Boot recovery FIT from UBI=run boot_recovery");
+	env_set("bootmenu_2", "TFTP RAM boot (no flash write)=run boot_tftp");
+	env_set("bootmenu_3", "Start Web failsafe=httpd");
+	env_set("bootmenu_4", "Reboot=reset");
+	for (i = 5; i < 20; i++) {
+		snprintf(var, sizeof(var), "bootmenu_%u", i);
+		env_set(var, NULL);
+	}
+}
+
+static void wma301_mac_from_mtd(void)
+{
+	struct mtd_info *mtd;
+	u8 mac[6], current[6];
+	size_t len = 0;
+	int ret;
+
+	if (env_get_yesno("mac_from_mtd") == 0)
+		return;
+
+	mtd_probe_devices();
+	mtd = get_mtd_device_nm("factory_info");
+	if (IS_ERR_OR_NULL(mtd)) {
+		puts("WMA301: factory_info not found, retaining existing MAC\n");
+		return;
+	}
+	if (mtd->size < 0x1c + sizeof(mac)) {
+		put_mtd_device(mtd);
+		puts("WMA301: factory_info unexpectedly short\n");
+		return;
+	}
+	ret = mtd_read(mtd, 0x1c, sizeof(mac), &len, mac);
+	put_mtd_device(mtd);
+	if ((ret && !mtd_is_bitflip(ret)) || len != sizeof(mac) ||
+	    !is_valid_ethaddr(mac)) {
+		puts("WMA301: factory MAC read/validation failed\n");
+		return;
+	}
+	if (eth_env_get_enetaddr("ethaddr", current) &&
+	    !memcmp(current, mac, sizeof(mac)))
+		return;
+	eth_env_set_enetaddr("ethaddr", mac);
+	printf("WMA301: MAC %pM from factory_info+0x1c (RAM only)\n", mac);
+}
+
+void wma301_board_runtime_init(void)
+{
+	/* Align the active MTD map with 2025 despite any saved UBI variables. */
+	env_set("mtdids", WMA301_MTDIDS);
+	env_set("mtdparts", WMA301_MTDPARTS);
+	/* Never honor or persist a previously saved flash-write arm. */
+	env_set("wma301_bl33_update_enable", NULL);
+	wma301_repair_2025_env();
+	wma301_mac_from_mtd();
+}
