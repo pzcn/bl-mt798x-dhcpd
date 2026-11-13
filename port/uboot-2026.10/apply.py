@@ -6,7 +6,7 @@ import re
 
 HERE = Path(__file__).resolve().parent
 NAME = "mt7981_tplink_wma301v2_experimental"
-MARKER = "WMA301_PREVIEW_READ_ONLY_UPLOADS"
+MARKER = "WMA301_BL33_DIRECT_UPDATE"
 
 def patch_once(s, needle, extra):
     if s.count(needle) != 1:
@@ -35,7 +35,7 @@ def install(tree):
         '#include "wma301_oem_bl33.h"\n')
     v = "int failsafe_validate_image(const void *data, size_t size, failsafe_fw_t fw)\n{\n"
     s = patch_once(s, v, (
-        "\t/* " + MARKER + ": RAM boot or authenticated WMABL33 v1 only. */\n"
+        "\t/* " + MARKER + ": RAM boot or WMABL33 v1 update only. */\n"
         "\tif (fw == FW_TYPE_FIP)\n"
         "\t\treturn wma301_oem_bl33_validate(data, size);\n"
         "\tif (fw != FW_TYPE_INITRD)\n"
@@ -43,16 +43,10 @@ def install(tree):
     ))
     w = "int failsafe_write_image(const void *data, size_t size, failsafe_fw_t fw)\n{\n"
     s = patch_once(s, w, (
-        "\t/* " + MARKER + ": no generic FIP, BL2 or firmware writes. */\n"
-        "\tif (fw == FW_TYPE_FIP) {\n"
-        "\t\tif (env_get_yesno(\"wma301_bl33_update_enable\") != 1)\n"
-        "\t\t\treturn failsafe_error(-EPERM,\n"
-        "\t\t\t\t\"WMABL33 write locked: arm via TTL setenv (no saveenv)\");\n"
-        "\t\t/* Consume RAM-only authorization before touching NAND. */\n"
-        "\t\tenv_set(\"wma301_bl33_update_enable\", NULL);\n"
+        "\t/* " + MARKER + ": WMABL33 direct Web update. */\n"
+        "\tif (fw == FW_TYPE_FIP)\n"
         "\t\treturn wma301_oem_bl33_write(data, size);\n"
-        "\t}\n"
-        "\treturn failsafe_error(-EPERM, \"WMA301: generic flash writes disabled\");\n"
+        "\treturn failsafe_error(-EPERM, \"WMA301: generic firmware flashing unavailable\");\n"
     ))
     # Upstream enables MTK_FAILSAFE_VERIFY_WRITE by default, and its
     # generic FIP verifier compares the WMABL33 *package* bytes against
@@ -67,7 +61,7 @@ def install(tree):
     ))
     path.write_text(s)
     assert s.count(MARKER) == 2
-    print("Installed two Web upload flash guards")
+    print("Installed direct WMABL33 Web update route")
 
     # V4->2026 compatibility is an isolated, auditable board module.
     boarddir = tree / "board/mediatek/mt7981"
@@ -130,7 +124,7 @@ def install(tree):
         '\tselect SHA256\n'
         '\thelp\n'
         '\t  WMA301 V2 single-page recovery UI, based on the Toolbox styling.\n'
-        '\t  This experiment disables persistent flash writes.\n\n')
+        '\t  WMABL33 Web updates are enabled; generic firmware writes remain disabled.\n\n')
     kpath.write_text(config_text)
     embedmk = tree / "failsafe/embedded/Makefile"
     embed_txt = embedmk.read_text()
@@ -322,8 +316,9 @@ def verify(tree):
         raise RuntimeError("OEM FIP writer missing or layout guard changed")
     failsafe = (tree / "board/mediatek/common/failsafe.c").read_text()
     if ("wma301_oem_bl33_validate" not in failsafe or
-            "wma301_bl33_update_enable" not in failsafe):
-        raise RuntimeError("WMABL33 upload gate/validator missing")
+            "wma301_oem_bl33_write(data, size)" not in failsafe or
+            "wma301_bl33_update_enable" in failsafe):
+        raise RuntimeError("WMABL33 direct update route missing or locked")
     if "WMA301_OEM_FIP_READBACK" not in failsafe:
         raise RuntimeError("Generic FIP verification not bypassed for WMABL33")
     if "wma301_oem_bl33.o" not in (tree / "board/mediatek/common/Makefile").read_text():
@@ -340,7 +335,6 @@ def verify(tree):
                    'env_set("bootcmd", WMA301_BOOTCMD)',
                    'env_set("mtdids", WMA301_MTDIDS)',
                    'env_set("mtdparts", WMA301_MTDPARTS)',
-                   'env_set("wma301_bl33_update_enable", NULL)',
                    'get_mtd_device_nm("factory_info")',
                    'mtd_read(mtd, 0x1c, sizeof(mac)',
                    'env_set("ethaddr", str)',
@@ -348,6 +342,8 @@ def verify(tree):
                    'env_set("bootmenu_3", "Start Web failsafe=httpd")'):
         if marker not in compat:
             raise RuntimeError("WMA301 2025 runtime migration missing: " + marker)
+    if "wma301_bl33_update_enable" in compat:
+        raise RuntimeError("Legacy BL33 write interlock must be removed")
     if "env_save(" in compat or "saveenv" in compat:
         raise RuntimeError("Boot migration must not persist environment")
     mk = (tree / "board/mediatek/common/Makefile").read_text()
@@ -376,7 +372,7 @@ def verify(tree):
                  "saveenv", "snand_write"):
         if word in env:
             raise RuntimeError("Dangerous boot command: " + word)
-    print("WMA301 U-Boot 2026.10 static safety checks passed")
+    print("WMA301 U-Boot 2026.10 static checks passed")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
