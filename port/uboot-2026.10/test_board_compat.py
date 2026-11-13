@@ -29,7 +29,7 @@ class LegacyBootTests(unittest.TestCase):
         self.assertIn('wma301_board_runtime_init();', APPLY)
         self.assertNotIn('env_save(', BOARD)
         self.assertNotIn('saveenv', BOARD)
-        self.assertIn('env_set("wma301_bl33_update_enable", NULL)', BOARD)
+        self.assertNotIn('wma301_bl33_update_enable', BOARD)
 
     def test_factory_mac(self):
         self.assertIn('get_mtd_device_nm("factory_info")', BOARD)
@@ -115,13 +115,16 @@ class LegacyBootTests(unittest.TestCase):
         self.assertIn('.toUpperCase();', WEB)
         self.assertIn('reserved', README)
 
-    def test_deliberate_firmware_web_limit(self):
-        self.assertIn('sysupgrade.itb', WEB)
+    def test_web_supports_bl33_and_ram_boot_only(self):
+        # Generic sysupgrade is intentionally done after Linux RAM boot.
         self.assertIn('sysupgrade.itb', README)
         self.assertIn('Web', README)
         self.assertIn('ubootenv', README)
         self.assertIn('ubootenv2', README)
+        self.assertIn('kind !== "initramfs" && kind !== "fip"', WEB)
+        self.assertIn('precheck(f, "initramfs"', WEB)
         self.assertIn('precheck(file, "fip"', WEB)
+        self.assertNotIn('precheck(file, "firmware"', WEB)
 
 
 if __name__ == '__main__':
