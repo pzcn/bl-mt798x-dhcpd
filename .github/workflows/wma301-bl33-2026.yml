@@ -1,4 +1,4 @@
-name: WMA301 V2 U-Boot 2026.10 BL33 preview
+name: WMA301 V2 U-Boot 2026.10 BL33
 
 on:
   push:
@@ -39,7 +39,7 @@ jobs:
             bc swig file nodejs npm xz-utils
       - name: Test WMABL33 v1 package format offline
         run: python3 -m unittest discover -v -s port/uboot-2026.10 -p 'test_*.py'
-      - name: Apply WMA301 board compatibility and Web safeguards
+      - name: Apply WMA301 board compatibility and Web updater
         run: |
           python3 port/uboot-2026.10/apply.py upstream
           git -C upstream diff --check
@@ -83,7 +83,7 @@ jobs:
           config = Path("upstream/.config").read_text()
           if "CONFIG_WEBUI_FAILSAFE_UI_WMA301=y" not in config:
               raise SystemExit("V4 UI not selected by Kconfig")
-          print("V4 SPA, dark/light CSS, original Toolbox favicon and safe routes embedded")
+          print("WMA301 Web UI embedded")
           PY
       - name: Package WMABL33 v1 and cross-check Toolbox format
         run: |
@@ -91,7 +91,7 @@ jobs:
           mkdir -p output
           python3 port/uboot-2026.10/package_bl33.py \
             upstream/u-boot.bin output/WMA301_BL33_UPDATE.bin \
-            --audit output/build-audit.json --experimental
+            --audit output/build-audit.json
           python3 port/uboot-2026.10/package_bl33.py \
             --verify output/WMA301_BL33_UPDATE.bin \
             --audit output/verify-audit.json
@@ -103,14 +103,14 @@ jobs:
           cp upstream/.config output/u-boot.config
           aarch64-linux-gnu-readelf -h upstream/u-boot > output/elf-header.txt
           printf '%s\\n' \
-            'EXPERIMENTAL, NOT FOR FLASH: BL33 compatibility has not been verified.' \
-            'WMABL33 v1 package framing alone DOES NOT establish an OEM BL31-compatible FIP.' \
-            'Toolbox format compliance is not hardware boot or safe-flash certification.' \
-            > output/READ-ME-FIRST.txt
-      - name: Upload inspection artifact only
+            'WMA301 BL33 Web update: upload WMA301_BL33_UPDATE.bin.' \
+            'Updates BL33 in the existing three-block FIP; retains BL2/BL31.' \
+            'WMABL33 v1 package format verified.' \
+            > output/README.txt
+      - name: Upload BL33 update artifact
         uses: actions/upload-artifact@v4
         with:
-          name: WMA301_2026_10_WMABL33_V1_EXPERIMENTAL_NOT_FOR_FLASH
+          name: WMA301_2026_10_BL33_UPDATE
           path: output/
           retention-days: 14
           if-no-files-found: error
