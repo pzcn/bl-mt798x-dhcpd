@@ -2,7 +2,7 @@
 """WMABL33 v1 package encoder/strict decoder for WMA301 V2.
 
 Wire format matches pzcn/wma301-openwrt PR #4, parse_bl33_package().
-Packaging is a format test, not hardware validation or permission to flash.
+The package is used by the WMA301 Web BL33 updater.
 """
 import argparse
 import hashlib
@@ -84,7 +84,6 @@ def main():
     cli.add_argument("--verify", type=Path,
                      help="Validate existing WMABL33 package instead of packing raw BL33")
     cli.add_argument("--audit", type=Path)
-    cli.add_argument("--experimental", action="store_true")
     args = cli.parse_args()
     if args.verify:
         if args.input or args.output:
@@ -118,9 +117,7 @@ def main():
         "package_sha256": digest(package).hex(),
         "fip_compressed_end": hex(FIP_XZ_START + len(parsed["xz"])),
         "fits_oem_fip_window": True,
-        "hardware_validated": False,
-        "status": "EXPERIMENTAL / NOT FOR FLASH" if args.experimental
-                  else "FORMAT CHECK ONLY / NOT HARDWARE VALIDATED"
+        "status": "WMABL33 v1 package verified"
     }
     if args.audit:
         args.audit.parent.mkdir(parents=True, exist_ok=True)
