@@ -196,7 +196,7 @@ def install(tree):
         '#if IS_ENABLED(CONFIG_WEBUI_FAILSAFE_UI_WMA301)\n'
         '\t\t/* ' + marker + ': prevents env_save() from this endpoint. */\n'
         '\t\tfailsafe_http_reply_text(response, 403,\n'
-        '\t\t\t"WMA301 experimental: persistent failsafe reboot disabled");\n'
+        '\t\t\t"WMA301: persistent failsafe reboot unavailable");\n'
         '\t\treturn;\n'
         '#endif\n'
     ) + upgrade[loc + len("\tif (status == HTTP_CB_NEW) {\n"):]
