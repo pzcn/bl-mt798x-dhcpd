@@ -88,6 +88,12 @@
 			groups = "spi0", "spi0_wp_hold";
 		};
 
+		/*
+		 * 4 mA, as in the 2025 build. At 8 mA this ESMT SPI-NAND
+		 * occasionally (~1 page in 7000) stored wrong on-die ECC parity
+		 * while the data was correct, so reads failed with -EBADMSG.
+		 * 52 MHz is fine; do not raise the drive strength.
+		 */
 		conf-pu {
 			pins = "SPI0_CS", "SPI0_HOLD", "SPI0_WP";
 			drive-strength = <MTK_DRIVE_4mA>;

@@ -5,8 +5,8 @@ from pathlib import Path
 import re
 
 HERE = Path(__file__).resolve().parent
-NAME = "mt7981_tplink_wma301v2_experimental"
-MARKER = "WMA301_BL33_DIRECT_UPDATE"
+NAME = "mt7981_tplink_wma301v2"
+MARKER = "WMA301_WEB_WRITE_POLICY"
 
 def patch_once(s, needle, extra):
     if s.count(needle) != 1:
@@ -32,21 +32,32 @@ def install(tree):
     if MARKER in s:
         raise RuntimeError("Already patched")
     s = patch_once(s, '#include "failsafe_validate.h"\n',
-        '#include "wma301_oem_bl33.h"\n')
+        '#include "wma301_oem_bl33.h"\n#include "wma301_tools.h"\n')
     v = "int failsafe_validate_image(const void *data, size_t size, failsafe_fw_t fw)\n{\n"
     s = patch_once(s, v, (
-        "\t/* " + MARKER + ": RAM boot or WMABL33 v1 update only. */\n"
+        "\t/* " + MARKER + ": RAM boot, UBI firmware (FIT) or WMABL33 only. */\n"
         "\tif (fw == FW_TYPE_FIP)\n"
         "\t\treturn wma301_oem_bl33_validate(data, size);\n"
-        "\tif (fw != FW_TYPE_INITRD)\n"
-        "\t\treturn failsafe_error(-EPERM, \"WMA301: generic flashing disabled\");\n"
+        "\tif (fw == FW_TYPE_FW) {\n"
+        "\t\tint wma301_ret = wma301_ubi_env_guard();\n"
+        "\t\tif (wma301_ret)\n"
+        "\t\t\treturn wma301_ret;\n"
+        "\t} else if (fw != FW_TYPE_INITRD) {\n"
+        "\t\treturn failsafe_error(-EPERM, \"WMA301: only firmware, initramfs or WMABL33 uploads\");\n"
+        "\t}\n"
     ))
     w = "int failsafe_write_image(const void *data, size_t size, failsafe_fw_t fw)\n{\n"
     s = patch_once(s, w, (
-        "\t/* " + MARKER + ": WMABL33 direct Web update. */\n"
+        "\t/* " + MARKER + ": WMABL33 repack, or upstream UBI \"fit\" write. */\n"
         "\tif (fw == FW_TYPE_FIP)\n"
         "\t\treturn wma301_oem_bl33_write(data, size);\n"
-        "\treturn failsafe_error(-EPERM, \"WMA301: generic firmware flashing unavailable\");\n"
+        "\tif (fw != FW_TYPE_FW)\n"
+        "\t\treturn failsafe_error(-EPERM, \"WMA301: only firmware or WMABL33 can be written\");\n"
+        "\t{\n"
+        "\t\tint wma301_ret = wma301_ubi_env_guard();\n"
+        "\t\tif (wma301_ret)\n"
+        "\t\t\treturn wma301_ret;\n"
+        "\t}\n"
     ))
     # Upstream enables MTK_FAILSAFE_VERIFY_WRITE by default, and its
     # generic FIP verifier compares the WMABL33 *package* bytes against
@@ -61,7 +72,7 @@ def install(tree):
     ))
     path.write_text(s)
     assert s.count(MARKER) == 2
-    print("Installed direct WMABL33 Web update route")
+    print("Installed WMA301 Web write policy (FIT firmware + WMABL33)")
 
     # V4->2026 compatibility is an isolated, auditable board module.
     boarddir = tree / "board/mediatek/mt7981"
@@ -87,7 +98,8 @@ def install(tree):
     # the legacy WMABL33-only repacker as a WMA301-specific module.
     common = tree / "board/mediatek/common"
     for name in ("wma301_oem_bl33.c", "wma301_oem_bl33.h",
-                 "wma301_board_compat.c", "wma301_backup.c"):
+                 "wma301_board_compat.c", "wma301_backup.c",
+                 "wma301_tools.c", "wma301_tools.h"):
         (common / name).write_bytes((HERE / name).read_bytes())
     makefile = common / "Makefile"
     mk = makefile.read_text()
@@ -98,6 +110,7 @@ def install(tree):
         # writer is used by failsafe.c whenever MTK_WEB_FAILSAFE is enabled.
         "obj-$(CONFIG_MTK_WEB_FAILSAFE) += wma301_oem_bl33.o\n"
         "obj-$(CONFIG_MTK_WEB_FAILSAFE) += wma301_backup.o\n"
+        "obj-$(CONFIG_MTK_WEB_FAILSAFE) += wma301_tools.o\n"
         "obj-y += wma301_board_compat.o\n")
     makefile.write_text(mk)
 
@@ -124,7 +137,7 @@ def install(tree):
         '\tselect SHA256\n'
         '\thelp\n'
         '\t  WMA301 V2 single-page recovery UI, based on the Toolbox styling.\n'
-        '\t  WMABL33 Web updates are enabled; generic firmware writes remain disabled.\n\n')
+        '\t  Web writes: UBI "fit" firmware (FIT, board-checked) and WMABL33 only.\n\n')
     kpath.write_text(config_text)
     embedmk = tree / "failsafe/embedded/Makefile"
     embed_txt = embedmk.read_text()
@@ -141,10 +154,12 @@ def install(tree):
     core = patch_once(
         core, '#include <failsafe/internal.h>\n',
         '\n/* WMA301 V4 backup API; never enable generic flash-write module. */\n'
-        'void wma301_backup_register_handlers(struct httpd_instance *inst);\n')
+        'void wma301_backup_register_handlers(struct httpd_instance *inst);\n'
+        'void wma301_tools_register_handlers(struct httpd_instance *inst);\n')
     core = patch_once(
         core, '\tfailsafe_register_pages(inst);\n',
-        '\twma301_backup_register_handlers(inst);\n')
+        '\twma301_backup_register_handlers(inst);\n'
+        '\twma301_tools_register_handlers(inst);\n')
     core = patch_before(core,
         "/*\n * A registered JS URI is the name of the embedded asset",
         '#if IS_ENABLED(CONFIG_WEBUI_FAILSAFE_UI_WMA301)\n'
@@ -184,26 +199,7 @@ def install(tree):
         '#endif\n')
     sysfile.write_text(sys)
 
-    # Rebooting "to failsafe" writes the boot environment in the new
-    # upstream even when all advanced Web features are off. Disable it.
-    upgrade_file = tree / "failsafe/modules/upgrade.c"
-    upgrade = upgrade_file.read_text()
-    marker = "WMA301_PREVIEW_DISABLE_PERSISTENT_FAILSAFE_REBOOT"
-    start = upgrade.index("void reboot_failsafe_handler(")
-    loc = upgrade.index("\tif (status == HTTP_CB_NEW) {\n", start)
-    upgrade = upgrade[:loc] + (
-        '\tif (status == HTTP_CB_NEW) {\n'
-        '#if IS_ENABLED(CONFIG_WEBUI_FAILSAFE_UI_WMA301)\n'
-        '\t\t/* ' + marker + ': prevents env_save() from this endpoint. */\n'
-        '\t\tfailsafe_http_reply_text(response, 403,\n'
-        '\t\t\t"WMA301: persistent failsafe reboot unavailable");\n'
-        '\t\treturn;\n'
-        '#endif\n'
-    ) + upgrade[loc + len("\tif (status == HTTP_CB_NEW) {\n"):]
-    if upgrade.count(marker) != 1:
-        raise RuntimeError("Cannot safely guard persistent reboot route")
-    upgrade_file.write_text(upgrade)
-    print("Registered V4 UI and blocked persistent reboot endpoint")
+    print("Registered V4 UI, backup and WMA301 tool routes")
 
 def verify(tree):
     dts = (tree / "arch/arm/dts" / (NAME + ".dts")).read_text()
@@ -251,6 +247,12 @@ def verify(tree):
         'CONFIG_WEBUI_FAILSAFE_ADVANCED=y',
         'CONFIG_WEBUI_FAILSAFE_LED=y',
         'CONFIG_WEBUI_FAILSAFE_COMPRESS_GZIP=y',
+        'CONFIG_AUTOBOOT_MENU_SHOW=y',
+        'CONFIG_MTK_NET_ABORT=y',
+        'CONFIG_MTK_FAILSAFE_VALIDATE=y',
+        'CONFIG_MTK_FAILSAFE_VALIDATE_FIRMWARE=y',
+        'CONFIG_MTK_FAILSAFE_VERIFY_WRITE=y',
+        'CONFIG_FIT=y',
         'CONFIG_ENV_SIZE=0x1f000',
         'CONFIG_ENV_UBI_PART="ubi"',
         'CONFIG_ENV_UBI_VOLUME="ubootenv"',
@@ -273,13 +275,16 @@ def verify(tree):
             raise RuntimeError("Unsafe option: " + key)
     s = (tree / "board/mediatek/common/failsafe.c").read_text()
     if s.count(MARKER) != 2:
-        raise RuntimeError("Missing Web flash guards")
+        raise RuntimeError("Missing WMA301 Web write policy")
+    if s.count("wma301_ubi_env_guard()") != 2:
+        raise RuntimeError("Firmware writes must check ubootenv/ubootenv2 first")
     ui = tree / "failsafe/embedded/fsdata-wma301"
     if not (ui / "main.js").is_file() or not (ui / "favicon.svg").is_file():
         raise RuntimeError("WMA301 V4 UI files not installed")
     javascript = (ui / "main.js").read_text()
-    if ("0x200000" in javascript or "0x20000" not in javascript or
+    if ("0x200000" in javascript or
             'precheck(file, "fip"' not in javascript or
+            'precheck(f, "firmware"' not in javascript or
             'String((S.sys && S.sys.mac)' not in javascript or
             '.toUpperCase();' not in javascript):
         raise RuntimeError("WMABL33 UI has stale FIP warning or missing update route")
@@ -306,9 +311,19 @@ def verify(tree):
         raise RuntimeError("sysinfo MAC field missing")
     if "favicon.svg" not in (tree / "failsafe/core.c").read_text():
         raise RuntimeError("V4 favicon route is missing")
-    if (tree / "failsafe/modules/upgrade.c").read_text().count(
-            "WMA301_PREVIEW_DISABLE_PERSISTENT_FAILSAFE_REBOOT") != 1:
-        raise RuntimeError("Persistent reboot endpoint is not guarded")
+    if "wma301_tools_register_handlers(inst);" not in core:
+        raise RuntimeError("WMA301 health/fitcheck/reset-config routes not registered")
+    tools = (tree / "board/mediatek/common/wma301_tools.c").read_text()
+    for marker in ('"/wma301/health"', '"/wma301/fitinfo"', '"/wma301/fitcheck"',
+                   '"/wma301/reset-config"', 'strcmp(confirm->data, "RESET")',
+                   'ubi_find_volume("ubootenv")', 'ubi_find_volume("ubootenv2")',
+                   'fit_all_image_verify(fit)'):
+        if marker not in tools:
+            raise RuntimeError("WMA301 tools module incomplete: " + marker)
+    for destructive in ('mtd_write(', 'mtd_erase(', 'ubi remove fit',
+                        'env_save(', 'saveenv'):
+        if destructive in tools:
+            raise RuntimeError("WMA301 tools may only recreate rootfs_data")
     writer = (tree / "board/mediatek/common/wma301_oem_bl33.c").read_text()
     if ("mtd->offset != 0x20000" not in writer or
             "wma301_oem_bl33_write" not in writer or
@@ -339,7 +354,11 @@ def verify(tree):
                    'mtd_read(mtd, 0x1c, sizeof(mac)',
                    'env_set("ethaddr", str)',
                    'env_set("btnchk_key", "reset,mesh")',
-                   'env_set("bootmenu_3", "Start Web failsafe=httpd")'):
+                   'env_set("bootmenu_0", "Boot system=run bootcmd")',
+                   'env_set("net_abort_wait", "0")',
+                   'env_set("failsafe_strict_model", NULL)',
+                   'env_set("failsafe_validate", NULL)',
+                   'env_set("failsafe_verify", NULL)'):
         if marker not in compat:
             raise RuntimeError("WMA301 2025 runtime migration missing: " + marker)
     if "wma301_bl33_update_enable" in compat:
@@ -362,12 +381,15 @@ def verify(tree):
             re.search(r"(?m)^check_buttons=", env_default)):
         raise RuntimeError("Unused check_buttons runtime/default assignment must be absent")
 
-    if ('#define WMA301_BOOTCMD "run boot_production ; run boot_recovery ; httpd"' not in compat or
+    if ('#define WMA301_BOOTCMD "run boot_production ; httpd"' not in compat or
             'strstr(bootcmd, "run check_buttons")' not in compat):
         raise RuntimeError("Duplicate post-countdown button check not removed")
     env = (tree / "defenvs" / (NAME + "_env")).read_text()
     if "bootcmd=run check_buttons" in env:
         raise RuntimeError("Old post-bootdelay btnchk would run twice")
+    if ("bootmenu_0=Boot system=run bootcmd" not in env or
+            "net_abort_wait=0" not in env or "boot_recovery" in env):
+        raise RuntimeError("Boot menu default must run bootcmd (httpd fallback)")
     for word in ("mtd erase", "mtd write", "ubi write", "ubi remove",
                  "saveenv", "snand_write"):
         if word in env:

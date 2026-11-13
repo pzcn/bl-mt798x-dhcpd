@@ -1,6 +1,6 @@
 # WMA301 V2 · U-Boot 2026.10
 
-**CI builds the WMA301 BL33 Web update package, retaining OEM BL2/BL31.**
+**U-Boot for the TP-Link WMA301 V2 on the OEM BL2/BL31: Web firmware flashing, BL33 self-update, read-only backups and a single boot menu.**
 
 This overlay pins [Yuzhii0718/uboot-airoha-mediatek](https://github.com/Yuzhii0718/uboot-airoha-mediatek) at `628fe8da3a8084f1f43839abb1a5d0470521a2c7` (2026.10). The stable `wma301` / 2025.07 branch remains unchanged.
 
@@ -34,8 +34,9 @@ No partition table is flashed as part of BL33 migration.
 - **2025 bootcmd migration:** U-Boot 2025 may have persisted
   `bootcmd=mtkboardboot` in `ubootenv` / `ubootenv2`. That command does
   not exist in 2026.10. At `board_late_init`, an empty/missing `bootcmd`,
-  or one containing `mtkboardboot`, is replaced **in RAM** with the
-  new `boot_production → boot_recovery → httpd` sequence.
+  or one containing `mtkboardboot` or the removed `boot_recovery`, is
+  replaced **in RAM** with `run boot_production ; httpd`. There is no
+  `recovery` UBI volume in this layout.
   Upstream already checks the buttons before the boot countdown;
   `check_buttons` is no longer set or executed. A saved legacy
   `bootcmd` invoking it is still migrated in RAM. Missing UBI boot
@@ -59,10 +60,19 @@ No partition table is flashed as part of BL33 migration.
   cannot remove this key selection. The recovery UI is at
   `http://192.168.1.1/` and needs no UART. Actual LED behavior and
   button timing still need hardware verification on WMA301 V2.0.
-- **Manual TTL bootmenu:** at the serial `MT7981>` prompt, run
-  `bootmenu` for installed FIT, recovery FIT, TFTP **RAM boot**,
-  Web failsafe and reboot. Neither physical button starts a menu
-  automatically. No raw NAND-writing menu actions are present.
+- **Boot menu:** `CONFIG_AUTOBOOT_MENU_SHOW` replaces the plain
+  "Hit any key" countdown with one menu shown for `bootdelay` (3 s):
+  `Boot system` (default, runs `bootcmd`, so a failed boot still falls
+  back to `httpd`), `Web failsafe`, `TFTP RAM boot (no flash write)`,
+  `Reboot`, and `Exit` to the U-Boot console. The network-abort listener
+  (`uBootEnter.py`, UDP 37541) keeps polling during the menu countdown,
+  so its separate pre-wait is off (`net_abort_wait=0`). Without a
+  serial cable the menu simply times out and boots. No raw
+  NAND-writing menu actions are present.
+- **Reboot to recovery:** `GET /reboot-failsafe` (the Web "重启并进入
+  恢复模式" button) and `fw_setenv failsafe 1 && reboot` from ImmortalWrt
+  (`reboot-recovery` in the WMA301 firmware) set a one-shot flag; upstream
+  clears it before starting the Web UI.
 - **Reset early handling:** the upstream board can select defaults
   instead of persisted variables when Reset is detected. Its serial
   message about "resetting environment" means **RAM-only defaults for
@@ -72,6 +82,18 @@ No partition table is flashed as part of BL33 migration.
 - **LED polarity:** on measured V2.0 hardware, GPIO14 red and GPIO15
   green are both **active HIGH**. GPIO0 Mesh and GPIO1 Reset remain
   active LOW.
+
+## SPI-NAND: 52 MHz, 4 mA drive (do not use 8 mA)
+
+The first 2026.10 port set the SPI0 pin drive strength to 8 mA. On WMA301
+V2.0 (ESMT SPI-NAND, 1-bit on-die ECC) that produced roughly one page in
+7000 whose **data was written correctly but whose on-die ECC parity was
+wrong**, so every later read of that page failed with `-74` (EBADMSG) in
+both U-Boot and Linux. The failing page moved on every rewrite, which ruled
+out a weak block. Lowering the clock was not needed: **4 mA at 52 MHz**
+(the value the 2025 build always used) fixes it. ImmortalWrt uses the same
+4 mA pinctrl. The Web "完整性检查" button reads the whole `fit` volume and
+verifies the FIT hashes, which exposes this class of fault immediately.
 
 ## Read-only Web backups
 
@@ -95,14 +117,37 @@ the client must verify `Content-Length` and repeat critical reads.
 
 ## Firmware and BL33 Web updates
 
-The dedicated WMABL33 updater is available directly in U-Boot Web recovery.
-No TTL authorization or environment-variable switch is required. Uploaded
-packages are validated, written to the repacked FIP and read back.
+Web writes are limited to two kinds. Everything else (BL2, raw FIP,
+GPT, arbitrary MTD/UBI) is rejected with `-EPERM` before any flash access.
 
-Generic sysupgrade.itb Web flashing is not implemented in this port.
-For ImmortalWrt, boot initramfs and use Linux sysupgrade, preserving the
-UBI ubootenv and ubootenv2 volumes. The environment editor, Web console,
-generic BL2/FIP and UBI management pages remain disabled.
+- **ImmortalWrt `*-squashfs-sysupgrade.itb`** (form field `firmware`):
+  upstream validates the FIT structure and, in strict model mode, requires
+  a configuration compatible with this board (`tplink,wma301-v2`). Before
+  anything is removed, WMA301 checks that `ubootenv` and `ubootenv2`
+  exist; otherwise the upload is refused, because the recreated
+  `rootfs_data` would take every free PEB. Upstream then drops
+  `rootfs_data`, recreates `fit` at the image size, writes it, recreates
+  `rootfs_data` and reads the volume back. The environment switches
+  `failsafe_validate`, `failsafe_strict_model` and `failsafe_verify` are
+  cleared at every boot (RAM only), so none of these checks can be
+  disabled from a saved environment.
+- **`WMA301_BL33_UPDATE.bin`** (form field `fip`): the dedicated WMABL33
+  updater below.
+
+Initramfs RAM boot (`initramfs`) writes nothing.
+
+### Recovery tools (`/wma301/*`)
+
+| Route | Method | Effect |
+|---|---|---|
+| `/wma301/health` | GET | Chip bad blocks, UBI good/bad/spare PEBs, erase counters, volumes |
+| `/wma301/fitinfo` | GET | FIT header of the installed `fit` volume (kernel, config, build time) |
+| `/wma301/fitcheck` | POST | Reads the whole `fit` volume and runs `fit_all_image_verify` |
+| `/wma301/reset-config` | POST `confirm=RESET` | Removes and recreates `rootfs_data` only (OpenWrt factory reset) |
+
+They never touch `bl2`, `fip`, `reserved`, `factory_info`, `art`, `config`,
+`fit` or the environment volumes. The environment editor, Web console and
+generic UBI management pages remain disabled.
 
 ## WMABL33 v1, three-block limit and eligibility
 
@@ -126,8 +171,8 @@ Toolbox method or serial/BootROM procedure; merely supplying a
 WMABL33 package to an original FIP is not supported.
 
 BL33 Web updates use WMA301_BL33_UPDATE.bin without a TTL unlock or
-write-enable variable. The three-block FIP requirement, integrity checks
-and readback verification remain in place.
+write-enable variable (hardware-verified on WMA301 V2.0). The three-block
+FIP requirement, integrity checks and readback verification remain in place.
 
 WMA301_BL33_UPDATE.bin is a BL33 update package, not a full FIP image.
 
@@ -143,7 +188,7 @@ git clone https://github.com/Yuzhii0718/uboot-airoha-mediatek.git upstream
 git -C upstream checkout 628fe8da3a8084f1f43839abb1a5d0470521a2c7
 python3 wma301/port/uboot-2026.10/apply.py upstream
 npm ci --prefix upstream/failsafe/embedded
-make -C upstream mt7981_tplink_wma301v2_experimental_defconfig
+make -C upstream mt7981_tplink_wma301v2_defconfig
 make -C upstream olddefconfig
 python3 wma301/port/uboot-2026.10/apply.py upstream --verify
 make -C upstream -j"$(nproc)" CROSS_COMPILE=aarch64-linux-gnu- all

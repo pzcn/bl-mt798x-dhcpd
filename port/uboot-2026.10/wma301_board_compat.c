@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
  * WMA301 V2 compatibility for U-Boot 2026.10.
- * RAM-only 2025 environment migration, safe Mesh bootmenu and factory MAC.
+ * RAM-only 2025 environment migration, boot menu, recovery policy and factory MAC.
  */
 #include <env.h>
 #include <net.h>
@@ -14,7 +14,7 @@
 
 #define WMA301_MTDIDS "spi-nand0=spi-nand0"
 #define WMA301_MTDPARTS "spi-nand0:128k(bl2)ro,3712k(fip)ro,256k(reserved)ro,512k(factory_info)ro,512k(art)ro,2048k(config)ro,-(ubi)"
-#define WMA301_BOOTCMD "run boot_production ; run boot_recovery ; httpd"
+#define WMA301_BOOTCMD "run boot_production ; httpd"
 
 static void wma301_repair_2025_env(void)
 {
@@ -25,8 +25,9 @@ static void wma301_repair_2025_env(void)
 
 	/* 2025 saved bootcmd=mtkboardboot is not a command in 2026.10. */
 	if (!bootcmd || !*bootcmd || strstr(bootcmd, "mtkboardboot") ||
-	    strstr(bootcmd, "run check_buttons")) {
-		puts("WMA301: replacing legacy mtkboardboot in RAM\n");
+	    strstr(bootcmd, "run check_buttons") ||
+	    strstr(bootcmd, "boot_recovery")) {
+		puts("WMA301: replacing legacy bootcmd in RAM\n");
 		env_set("bootcmd", WMA301_BOOTCMD);
 	}
 	if (!env_get("loadaddr"))
@@ -43,10 +44,8 @@ static void wma301_repair_2025_env(void)
 	if (!script || !*script || strstr(script, "mtkboardboot"))
 		env_set("boot_production",
 			"ubi part ubi && ubi read $loadaddr fit && bootm $loadaddr");
-	script = env_get("boot_recovery");
-	if (!script || !*script || strstr(script, "mtkboardboot"))
-		env_set("boot_recovery",
-			"ubi part ubi && ubi read $loadaddr recovery && bootm $loadaddr");
+	/* There is no "recovery" UBI volume in the WMA301 layout. */
+	env_set("boot_recovery", NULL);
 	script = env_get("boot_tftp");
 	if (!script || !*script || strstr(script, "mtkboardboot"))
 		env_set("boot_tftp",
@@ -61,16 +60,21 @@ static void wma301_repair_2025_env(void)
 	 * no serial cable. Upstream Reset may also select default env.
 	 */
 	env_set("btnchk_key", "reset,mesh");
-	
-	/* Manual serial bootmenu only; never divert button recovery into a menu. */
+
+	/*
+	 * Single boot menu: CONFIG_AUTOBOOT_MENU_SHOW shows it for bootdelay
+	 * seconds and runs entry 0 on timeout. Entry 0 is "run bootcmd" so
+	 * the httpd fallback after a failed boot is kept. netabort polls
+	 * during the menu countdown, so its separate pre-wait is dropped.
+	 */
+	env_set("net_abort_wait", "0");
 	env_set("bootmenu_default", "0");
 	env_set("bootmenu_delay", "30");
-	env_set("bootmenu_0", "Boot installed FIT from UBI=run boot_production");
-	env_set("bootmenu_1", "Boot recovery FIT from UBI=run boot_recovery");
+	env_set("bootmenu_0", "Boot system=run bootcmd");
+	env_set("bootmenu_1", "Web failsafe (http://192.168.1.1)=httpd");
 	env_set("bootmenu_2", "TFTP RAM boot (no flash write)=run boot_tftp");
-	env_set("bootmenu_3", "Start Web failsafe=httpd");
-	env_set("bootmenu_4", "Reboot=reset");
-	for (i = 5; i < 20; i++) {
+	env_set("bootmenu_3", "Reboot=reset");
+	for (i = 4; i < 20; i++) {
 		snprintf(var, sizeof(var), "bootmenu_%u", i);
 		env_set(var, NULL);
 	}
@@ -121,11 +125,24 @@ static void wma301_mac_from_mtd(void)
 		printf("WMA301: MAC %s from factory_info+0x1c (RAM only)\n", str);
 }
 
+/*
+ * Web firmware writes always validate the FIT, require a FIT configuration
+ * compatible with "tplink,wma301-v2" and read the volume back. Upstream
+ * lets the environment switch each of these off; never honour that here.
+ */
+static void wma301_enforce_recovery_checks(void)
+{
+	env_set("failsafe_validate", NULL);
+	env_set("failsafe_strict_model", NULL);
+	env_set("failsafe_verify", NULL);
+}
+
 void wma301_board_runtime_init(void)
 {
 	/* Align the active MTD map with 2025 despite any saved UBI variables. */
 	env_set("mtdids", WMA301_MTDIDS);
 	env_set("mtdparts", WMA301_MTDPARTS);
 	wma301_repair_2025_env();
+	wma301_enforce_recovery_checks();
 	wma301_mac_from_mtd();
 }

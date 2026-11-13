@@ -46,7 +46,7 @@ jobs:
       - name: Validate V4 UI JavaScript
         run: |
           node --check upstream/failsafe/embedded/fsdata-wma301/main.js
-          grep -q 'CONFIG_WEBUI_FAILSAFE_UI_WMA301=y' port/uboot-2026.10/mt7981_tplink_wma301v2_experimental_defconfig
+          grep -q 'CONFIG_WEBUI_FAILSAFE_UI_WMA301=y' port/uboot-2026.10/mt7981_tplink_wma301v2_defconfig
       - name: Prepare Web UI
         run: npm ci --prefix upstream/failsafe/embedded --no-audit --no-fund
       - name: Build WMA301 BL33
@@ -54,7 +54,7 @@ jobs:
           CROSS_COMPILE: aarch64-linux-gnu-
         run: |
           set -euo pipefail
-          make -C upstream mt7981_tplink_wma301v2_experimental_defconfig
+          make -C upstream mt7981_tplink_wma301v2_defconfig
           make -C upstream olddefconfig
           python3 port/uboot-2026.10/apply.py upstream --verify
           make -C upstream -j"$(nproc)" all
@@ -66,7 +66,7 @@ jobs:
           base = Path("upstream/failsafe/embedded/fsdata-wma301/.min")
           required = {
               "index.html.gz": "WMA301 恢复模式",
-              "main.js.gz": "原厂 FIP 起点为 0x20000",
+              "main.js.gz": "/wma301/fitcheck",
               "style.css.gz": "--bg:",
               "favicon.svg.gz": "#102536",
               "initramfs.html.gz": "initramfs",
@@ -98,6 +98,10 @@ jobs:
           aarch64-linux-gnu-nm upstream/u-boot | grep -E "wma301_oem_bl33_(validate|write)"
           aarch64-linux-gnu-nm upstream/u-boot | grep -F "wma301_board_runtime_init"
           aarch64-linux-gnu-nm upstream/u-boot | grep -F "wma301_backup_register_handlers"
+          aarch64-linux-gnu-nm upstream/u-boot | grep -F "wma301_tools_register_handlers"
+          aarch64-linux-gnu-nm upstream/u-boot | grep -F "wma301_ubi_env_guard"
+          grep -Fq 'CONFIG_AUTOBOOT_MENU_SHOW=y' upstream/.config
+          grep -Fq 'CONFIG_MTK_FAILSAFE_VERIFY_WRITE=y' upstream/.config
           grep -Fq '# CONFIG_WEBUI_FAILSAFE_FLASH is not set' upstream/.config
           grep -Fq '# CONFIG_NET_RANDOM_ETHADDR is not set' upstream/.config
           cp upstream/.config output/u-boot.config
@@ -105,6 +109,7 @@ jobs:
           printf '%s\\n' \
             'WMA301 BL33 Web update: upload WMA301_BL33_UPDATE.bin.' \
             'Updates BL33 in the existing three-block FIP; retains BL2/BL31.' \
+            'ImmortalWrt: upload *-squashfs-sysupgrade.itb on the Web firmware page.' \
             'WMABL33 v1 package format verified.' \
             > output/README.txt
       - name: Upload BL33 update artifact

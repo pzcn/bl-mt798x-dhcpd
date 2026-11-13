@@ -1,4 +1,4 @@
-# WMA301 V2 BL33: Web updates enabled, OEM BL2/BL31 retained.
+# WMA301 V2 BL33: Web firmware/BL33 updates, OEM BL2/BL31 retained.
 ipaddr=192.168.1.1
 netmask=255.255.255.0
 serverip=192.168.1.2
@@ -12,17 +12,18 @@ failsafe_led_idle=red:status on
 failsafe_led_ready=green:status blink 1000
 failsafe_led_upgrade=red:status blink 200
 failsafe_led_fail=red:status blink 100
-bootcmd=run boot_production ; run boot_recovery ; httpd
+bootcmd=run boot_production ; httpd
 # Upstream main_loop invokes btnchk before bootdelay; no second check_buttons script.
 boot_production=ubi part ubi && ubi read $loadaddr fit && bootm $loadaddr
-boot_recovery=ubi part ubi && ubi read $loadaddr recovery && bootm $loadaddr
 # TFTP RAM boot remains available manually; avoid delaying automatic Web fallback.
 boot_tftp=tftpboot $loadaddr $bootfile && bootm $loadaddr
-# Serial-only manual command: "bootmenu", not triggered by Reset/Mesh.
+# One boot menu (CONFIG_AUTOBOOT_MENU_SHOW) replaces "Hit any key"; its
+# countdown is bootdelay. netabort keeps listening during that countdown,
+# so its separate pre-wait is disabled.
+net_abort_wait=0
 bootmenu_default=0
 bootmenu_delay=30
-bootmenu_0=Boot installed FIT from UBI=run boot_production
-bootmenu_1=Boot recovery FIT from UBI=run boot_recovery
+bootmenu_0=Boot system=run bootcmd
+bootmenu_1=Web failsafe (http://192.168.1.1)=httpd
 bootmenu_2=TFTP RAM boot (no flash write)=run boot_tftp
-bootmenu_3=Start Web failsafe=httpd
-bootmenu_4=Reboot=reset
+bootmenu_3=Reboot=reset
