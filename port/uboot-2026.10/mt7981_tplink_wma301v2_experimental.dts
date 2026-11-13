@@ -1,4 +1,4 @@
-/* Experimental: OEM BL2/BL31 unchanged. Do not flash this port. */
+/* WMA301 V2: OEM BL2/BL31 retained. */
 // SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (c) 2026
