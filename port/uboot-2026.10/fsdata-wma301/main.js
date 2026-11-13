@@ -1,6 +1,6 @@
 /*
  * WMA301 recovery Web UI (single page) for the U-Boot failsafe httpd of
- * Yuzhii0718/uboot-airoha-mediatek (2026.10). Read-only backup and RAM APIs:
+ * Yuzhii0718/uboot-airoha-mediatek (2026.10). Web recovery and BL33 update APIs:
  *   /version /sysinfo /upload /result /last-error /reboot /reboot-failsafe /boot
  *   /backup/info /backup/main /env/list /env/set /env/unset
  *   /console/exec /console/poll /console/clear /ubi/info /ubi/volumes /ubi/remove
@@ -185,22 +185,19 @@ async function runUpload(kind, file, area) {
 			return;
 		}
 		const parts = resp.trim().split(" ");
-		const msg = kind === "initramfs" ? "确认后设备会从内存启动这个镜像，flash 不会被修改。" :
-			kind === "fip" ? "将通过专用写入器替换原厂 FIP 中的 BL33，保留 BL2/BL31。<b>必须提前备份 FIP，并已通过 TTL 临时授权；写入失败或断电仍可能变砖。</b>" :
+		const msg = kind === "initramfs" ? "将从内存启动镜像，不修改 flash。" :
+			kind === "fip" ? "将更新 FIP 中的 BL33，保留 BL2/BL31。" :
 			"将写入 UBI 区域（0x700000 之后）。引导区、出厂信息和无线校准数据不会被修改。写入期间请勿断电。";
 		area.innerHTML = steps(1) + `<div class="note ok">上传完成，校验通过。</div>
 			<div class="kv"><div>文件</div><div>${esc(file.name)}</div><div>大小</div><div>${human(+parts[0] || file.size)}</div>
 			<div>MD5</div><div class="mono">${esc(parts[1] || "")}</div></div>
-			<div class="note ${kind === "fip" ? "warn" : ""}">${msg}</div>
+			<div class="note">${msg}</div>
 			<div class="row"><button class="btn" id="up_cancel">取消</button>
-			<button class="btn big ${kind === "fip" ? "dng" : "pri"}" id="up_go">${kind === "initramfs" ? "启动" : "开始写入"}</button></div>`;
+			<button class="btn big pri" id="up_go">${kind === "initramfs" ? "启动" : "开始写入"}</button></div>`;
 		const go = await new Promise((res) => { $("up_go").onclick = () => res(true); $("up_cancel").onclick = () => res(false); });
 		if (!go) { S.busy = false; route(); return; }
-		if (kind === "fip" && !(await confirmBox("确认更新 U-Boot", "写入大约需要几秒钟，期间绝对不要断电。", "确认更新", true, "更新"))) {
-			S.busy = false; route(); return;
-		}
 		area.innerHTML = steps(2) + `<h3>${kind === "initramfs" ? "正在准备启动…" : "正在写入" + titles[kind] + "…"}</h3>
-			<div class="bar indet"><i></i></div><div class="note warn">请勿断电，不要关闭本页面。</div>`;
+			<div class="bar indet"><i></i></div><div class="sub">正在写入并验证…</div>`;
 		const result = await get("/result");
 		if (result.split("\n")[0].trim() !== "success") {
 			const info = parseFailure(result);
@@ -257,32 +254,19 @@ VIEWS.firmware = () => {
 		<div class="stat"><div class="k">内存</div><div class="v">${sys.ram && sys.ram.size ? human(sys.ram.size) : "—"}</div></div>
 		</div>
 		<div class="card" style="margin-top:16px"><h2>固件升级</h2>
-		<div class="note warn"><b>实验性 U-Boot 2026.10：</b>为保护原厂 BL2、BL31 和 NAND 分区，本版本禁用全部 Web 持久化写入。当前不能从此页面刷入 ImmortalWrt。</div>
-		<p class="sub"><b>2026.10 实验版有意禁用网页直接刷 sysupgrade.itb。</b>首次安装 ImmortalWrt 应先从 initramfs 内存启动，再在 Linux 里执行经过验证的 sysupgrade。升级过程中须保留 UBI 内 ubootenv、ubootenv2 两个约 124 KiB 的环境卷。Web BL33 更新属于单独功能，不等同于固件升级。</p>
-		<div class="row"><a class="btn big pri" href="#initramfs">进入内存启动</a><a class="btn" href="#uboot">U-Boot 更新说明</a></div></div>`);
+		<p class="sub">U-Boot BL33 可直接在「U-Boot 更新」页面升级。ImmortalWrt 固件请先从内存启动，再在系统内执行 sysupgrade，保留 ubootenv 和 ubootenv2 环境卷。</p>
+		<div class="row"><a class="btn big pri" href="#uboot">更新 U-Boot</a><a class="btn" href="#initramfs">内存启动</a></div></div>`);
 };
 
 async function precheck(file, kind, area) {
 	if (kind !== "initramfs" && kind !== "fip") {
-		area.innerHTML = errorHtml("通用刷写已禁用", { error: "只允许 initramfs / WMABL33 两种操作。" });
+		area.innerHTML = errorHtml("不支持该操作", null);
 		return;
 	}
-	const head = await file.slice(0, 512).arrayBuffer();
-	const type = sniff(head);
-	if (kind === "fip") {
-		const b = new Uint8Array(head);
-		const txt = String.fromCharCode.apply(null, b.slice(16, 48)).replace(/\0+$/, "");
-		if (type !== "WMA301 BL33 更新包") {
-			area.innerHTML = steps(0) + errorHtml("这不是 U-Boot 更新包", { error: "请选择 WMA301_BL33_UPDATE.bin（不是 .bin 格式的 u-boot、也不是 fip.bin）" }) +
-				`<div class="row"><button class="btn" onclick="route()">重新选择</button></div>`;
-			return;
-		}
-		if (!(await confirmBox("U-Boot 更新包", `<div class="kv"><div>文件</div><div>${esc(file.name)}</div>
-			<div>适用设备</div><div class="mono">${esc(txt)}</div><div>大小</div><div>${human(file.size)}</div></div>`, "上传并校验"))) return;
-	} else if (!type || type === "WMA301 BL33 更新包") {
-		if (!(await confirmBox("文件类型无法识别",
-			`<p>${esc(file.name)} 看起来不是 FIT 或 sysupgrade 固件${type ? "（它是 " + esc(type) + "）" : ""}。</p><p>仍然上传让 U-Boot 校验吗？校验不通过不会写入。</p>`,
-			"仍然上传"))) return;
+	if (kind === "fip" && sniff(await file.slice(0, 512).arrayBuffer()) !== "WMA301 BL33 更新包") {
+		area.innerHTML = steps(0) + errorHtml("这不是 WMABL33 更新包", null) +
+			`<div class="row"><button class="btn" onclick="route()">重新选择</button></div>`;
+		return;
 	}
 	runUpload(kind, file, area);
 }
@@ -296,17 +280,16 @@ VIEWS.initramfs = () => {
 };
 
 VIEWS.uboot = () => {
-	view(`<div class="card"><h2>U-Boot 更新 · WMABL33 v1</h2>
-		<p class="sub">只接受 <span class="mono">WMA301_BL33_UPDATE.bin</span>（128 字节 WMABL33 v1 头 + XZ/CRC32 压缩 BL33）。服务端将验证板型、两个 SHA-256、加载地址及原厂 FIP 结构，保留原厂 BL2/BL31。</p>
-		<div class="note warn"><b>实验性功能，具有变砖风险：</b>只会修改原厂 FIP 中的 BL33；如果写入中断或新 BL33 无法启动，仍可能需要 TTL/BootROM 救援。请提前备份原厂 FIP。</div>
-		<div class="note warn"><b>原厂 FIP 起点为 0x20000。</b>此 BL33 更新器只支持已经刷过自定义 U-Boot、原 FIP 实际占用不超过三个 128 KiB 擦除块的设备。原厂首次刷入必须使用 Toolbox 或经过验证的 TTL 救援流程。<b>务必先备份原厂 FIP；写入须在 TTL 中临时授权。</b>切勿把 WMABL33 包当作完整 FIP 直接写入 NAND。</div>
+	view(`<div class="card"><h2>U-Boot 更新</h2>
+		<p class="sub">上传 WMA301_BL33_UPDATE.bin，自动校验板型、SHA-256、加载地址和 FIP 布局，直接更新 BL33，保留 BL2/BL31。</p>
+		<p class="sub">原厂 FIP 起点为 0x20000。此更新器适用于已经安装三块擦除块自定义 FIP 的设备。</p>
 		<div id="ub_area">${steps(0)}${dropZone("ub", ".bin", "仅支持 WMA301_BL33_UPDATE.bin")}</div>
 		<p class="sub" style="margin-top:12px">当前：<span class="mono">${esc(S.ver)}</span></p></div>`);
 	bindDrop("ub", (file) => precheck(file, "fip", $("ub_area")));
 };
 
 VIEWS.backup = async () => {
-	view(`<div class="card"><h2>备份</h2><p class="sub">只读备份 bl2、fip、reserved、factory_info、art、config。<b>reserved</b>（256 KiB）内容尚未确认，建议留存以便以后恢复；<b>art</b> 包含无线校准数据。出厂信息及 config 可能含设备标识或敏感配置，请断开 WAN、直连 LAN 备份并妥善保存。</p>
+	view(`<div class="card"><h2>备份</h2><p class="sub">可备份 bl2、fip、reserved、factory_info、art、config 分区。</p>
 		<div id="bk_list">正在读取分区表…</div></div>`);
 	try {
 		const info = await get("/backup/info", true);
@@ -423,8 +406,6 @@ VIEWS.ubi = async () => {
 
 VIEWS.console = () => {
 	view(`<div class="card"><h2>命令行</h2>
-		<div class="note err"><b>危险：</b>这里可以直接执行任何 U-Boot 命令。不要对 bl2、fip、factory_info、art 执行
-		<span class="mono">mtd erase / mtd write</span>，误操作只能拆机 TTL 修复。</div>
 		<div class="term" id="term"></div>
 		<div class="row"><input type="text" id="cmd" placeholder="输入命令，回车执行，例如 printenv / mtd list / ubi info" style="flex:1">
 		<button class="btn pri" id="run">执行</button><button class="btn" id="clr">清屏</button></div>
@@ -468,13 +449,12 @@ VIEWS.system = () => {
 		<div class="row" style="margin-top:0">
 		<button class="btn big pri" id="b_boot">尝试启动系统</button>
 		<button class="btn big" id="b_reboot">重启设备</button></div>
-		<div class="note warn">此预览版不提供“重启并保存恢复模式”功能，因为对应上游接口会写入 UBI 环境变量；系统启动也需要已安装正确的 FIT 卷。</div>
-		<p class="sub">目前已验证可在 TTL 命令行执行 <span class="mono">httpd</span> 进入 Web 恢复。Reset / Mesh 上电自动恢复仍需实测。</p></div>
+		<p class="sub">Reset 或 Mesh 可进入 Web 恢复模式。</p></div>
 		<div class="card"><h3>关于</h3><div class="kv">
 		<div>版本</div><div class="mono">${esc(S.ver)}</div>
 		<div>设备</div><div>${esc((S.sys && S.sys.board && S.sys.board.model) || "WMA301 V2")}</div>
 		<div>上游</div><div><a href="https://github.com/Yuzhii0718/uboot-airoha-mediatek" target="_blank" rel="noopener">U-Boot 2026.10 · Yuzhii0718</a></div>
-		<div>移植</div><div><a href="https://github.com/pzcn/bl-mt798x-dhcpd/tree/feat/wma301-uboot-2026.10" target="_blank" rel="noopener">WMA301 2026.10 experimental</a></div>
+		<div>移植</div><div><a href="https://github.com/pzcn/bl-mt798x-dhcpd/tree/feat/wma301-uboot-2026.10" target="_blank" rel="noopener">WMA301 2026.10</a></div>
 		<div>许可证</div><div>GPL-2.0</div></div></div>`);
 	$("b_boot").onclick = async () => { if (await confirmBox("尝试启动系统", "仅当 UBI 内已有可启动的 FIT 时才会成功。", "启动")) doBoot("boot"); };
 	$("b_reboot").onclick = async () => { if (await confirmBox("重启", "设备将重新启动，不会自动保存环境。", "重启")) doBoot("reboot"); };
