@@ -13,7 +13,7 @@
 / {
 	#address-cells = <1>;
 	#size-cells = <1>;
-	model = "TP-Link WMA301 V2 (experimental 2026.10)";
+	model = "TP-Link WMA301 V2 (2026.10)";
 	compatible = "tplink,wma301-v2", "mediatek,mt7981";
 
 	chosen {
