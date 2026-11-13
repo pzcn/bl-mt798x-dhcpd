@@ -1,6 +1,6 @@
-# WMA301 V2 · U-Boot 2026.10 experimental port
+# WMA301 V2 · U-Boot 2026.10
 
-**CI builds an experimental BL33, not a complete FIP. Hardware flash and recovery remain unverified.**
+**CI builds the WMA301 BL33 Web update package, retaining OEM BL2/BL31.**
 
 This overlay pins [Yuzhii0718/uboot-airoha-mediatek](https://github.com/Yuzhii0718/uboot-airoha-mediatek) at `628fe8da3a8084f1f43839abb1a5d0470521a2c7` (2026.10). The stable `wma301` / 2025.07 branch remains unchanged.
 
@@ -93,23 +93,16 @@ disconnect WAN and keep backup files private. HTTP recovery has no
 account login. A NAND with ECC/read errors may cause a backup to abort;
 the client must verify `Content-Length` and repeat critical reads.
 
-## Firmware Web upgrade is intentionally disabled
+## Firmware and BL33 Web updates
 
-The V4 UI and upstream Web failsafe framework are present. For now,
-`initramfs` RAM boot works, and the dedicated `WMABL33` BL33 update
-endpoint exists behind the TTL write interlock. **The 2025 Web
-`sysupgrade.itb` / generic firmware flash flow is deliberately
-disabled in the 2026.10 experiment.** This is an explicit temporary
-regression, not a successful full port.
+The dedicated WMABL33 updater is available directly in U-Boot Web recovery.
+No TTL authorization or environment-variable switch is required. Uploaded
+packages are validated, written to the repacked FIP and read back.
 
-Until the UBI `fit` writer, image checks, readback and persistent-volume
-preservation have been verified, first boot a suitable ImmortalWrt
-initramfs and upgrade using the tested Linux sysupgrade mechanism.
-Preserve the UBI `ubootenv` and `ubootenv2` volumes (approximately
-124 KiB each); do not recreate the whole NAND image blindly.
-Environment editor, Web console, generic FIP/BL2, raw flash and UBI
-management pages are also disabled. The upstream `reboot-failsafe`
-endpoint that saves environment changes is blocked.
+Generic sysupgrade.itb Web flashing is not implemented in this port.
+For ImmortalWrt, boot initramfs and use Linux sysupgrade, preserving the
+UBI ubootenv and ubootenv2 volumes. The environment editor, Web console,
+generic BL2/FIP and UBI management pages remain disabled.
 
 ## WMABL33 v1, three-block limit and eligibility
 
@@ -132,24 +125,17 @@ A factory-original WMA301 requires a verified first-install
 Toolbox method or serial/BootROM procedure; merely supplying a
 WMABL33 package to an original FIP is not supported.
 
-BL33 Web writing is **locked by default**. A test operator with a
-full per-device FIP backup and a known-good rescue path may set the
-`wma301_bl33_update_enable=1` variable **only in RAM via TTL**.
-It is cleared during every boot and before a write. Never use
-`saveenv` for this authorization.
+BL33 Web updates use WMA301_BL33_UPDATE.bin without a TTL unlock or
+write-enable variable. The three-block FIP requirement, integrity checks
+and readback verification remain in place.
 
-`WMA301_BL33_UPDATE.bin` is **not** a complete FIP or NAND image.
-Never pass it directly to `mtd write` / `nand write`. A successful
-CI build does not demonstrate flash-write, power-loss or rollback safety.
+WMA301_BL33_UPDATE.bin is a BL33 update package, not a full FIP image.
 
 ## Build
 
-CI fetches pinned upstream 2026.10, applies `apply.py`, audits
-the 2025 partition layout, both headless Web-recovery keys and legacy
-migration, compiles BL33, checks
-V4 UI embedding and package contents, and uploads an explicitly
-**experimental / not-for-flashing** artifact. It does not publish
-a release or modify any router.
+CI fetches pinned upstream 2026.10, applies `apply.py`, validates the OEM
+partition layout and recovery keys, compiles BL33, checks the Web UI and
+package format, then uploads the BL33 update artifact.
 
 ```sh
 git clone -b feat/wma301-uboot-2026.10 https://github.com/pzcn/bl-mt798x-dhcpd.git wma301
@@ -163,7 +149,3 @@ python3 wma301/port/uboot-2026.10/apply.py upstream --verify
 make -C upstream -j"$(nproc)" CROSS_COMPILE=aarch64-linux-gnu- all
 ```
 
-Still required on actual hardware: legacy saved-env boot, factory MAC,
-LED polarity, Reset and Mesh recovery without TTL, download streaming
-and backup hashes, manual serial menu, FIT volume naming and safe
-FIP/UBI recovery.
