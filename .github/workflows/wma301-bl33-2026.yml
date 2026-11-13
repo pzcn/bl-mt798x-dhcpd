@@ -49,7 +49,7 @@ jobs:
           grep -q 'CONFIG_WEBUI_FAILSAFE_UI_WMA301=y' port/uboot-2026.10/mt7981_tplink_wma301v2_experimental_defconfig
       - name: Prepare Web UI
         run: npm ci --prefix upstream/failsafe/embedded --no-audit --no-fund
-      - name: Build experimental BL33
+      - name: Build WMA301 BL33
         env:
           CROSS_COMPILE: aarch64-linux-gnu-
         run: |
