@@ -1,4 +1,4 @@
-# WMA301 V2 experimental BL33: RAM-only recovery, OEM BL2/BL31 unchanged.
+# WMA301 V2 BL33: Web updates enabled, OEM BL2/BL31 retained.
 ipaddr=192.168.1.1
 netmask=255.255.255.0
 serverip=192.168.1.2
