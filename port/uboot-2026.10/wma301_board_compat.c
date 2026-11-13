@@ -126,8 +126,6 @@ void wma301_board_runtime_init(void)
 	/* Align the active MTD map with 2025 despite any saved UBI variables. */
 	env_set("mtdids", WMA301_MTDIDS);
 	env_set("mtdparts", WMA301_MTDPARTS);
-	/* Never honor or persist a previously saved flash-write arm. */
-	env_set("wma301_bl33_update_enable", NULL);
 	wma301_repair_2025_env();
 	wma301_mac_from_mtd();
 }
